@@ -37,6 +37,8 @@ concurrency:
 env:
   # Mirror GitLab VLC_WIN_LLVM_IMAGE
   VLC_WIN_LLVM_IMAGE: registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916
+  # Pin LibVLC 4 line (no 4.0 stable yet). Not master; not 3.0.x consumer stable.
+  VLC_GIT_REF: 4.0.0-dev
   BUILD_FOLDER: win64
   PLATFORM: windows
   CROSSFILE: windows-x86_64.txt
@@ -74,6 +76,7 @@ jobs:
             -w /workspace \
             -e BUILD_FOLDER \
             -e LIBVLC_ARGS \
+            -e VLC_GIT_REF \
             "${VLC_WIN_LLVM_IMAGE}" \
             bash -c '
               set -euo pipefail
@@ -87,12 +90,15 @@ jobs:
               command -v x86_64-w64-mingw32-gcc
               x86_64-w64-mingw32-gcc --version | head -n1
 
-              if git clone --depth=1 https://code.videolan.org/videolan/vlc.git vlc; then
+              if git clone --depth=1 --branch "${VLC_GIT_REF}" https://code.videolan.org/videolan/vlc.git vlc; then
                 echo "Cloned VLC from code.videolan.org"
               else
                 echo "Primary VLC clone failed; falling back to GitHub mirror"
-                git clone --depth=1 https://github.com/videolan/vlc.git vlc
+                git clone --depth=1 --branch "${VLC_GIT_REF}" https://github.com/videolan/vlc.git vlc
               fi
+              echo "Building LibVLC from ref ${VLC_GIT_REF}"
+              git -C vlc rev-parse HEAD
+              git -C vlc describe --tags --always || true
               cd vlc
               extras/package/win32/build.sh ${LIBVLC_ARGS}
               cd "/workspace/vlc/${BUILD_FOLDER}"
@@ -105,6 +111,8 @@ jobs:
       - name: Filter LibVLC plugins (codec whitelist)
         run: |
           set -euo pipefail
+          # Docker wrote the tree as root; reclaim ownership before deleting plugins.
+          sudo chown -R "$(id -u):$(id -g)" "vlc-${BUILD_FOLDER}" || true
           PLUGINS="vlc-${BUILD_FOLDER}/${BUILD_FOLDER}/vlc-4.0.0-dev/plugins"
           if [[ ! -d "${PLUGINS}" ]]; then
             echo "Plugins dir not at ${PLUGINS}; searching…"

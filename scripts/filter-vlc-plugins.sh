@@ -203,7 +203,8 @@ while IFS= read -r f || [[ -n "${f}" ]]; do
     KEPT=$((KEPT + 1))
     echo "${base}" >> "${KEPT_LIST}"
   else
-    rm -f "${f}"
+    chmod u+w "${f}" 2>/dev/null || true
+    rm -f "${f}" || { echo "ERROR: could not delete ${f} (permission?)" >&2; exit 1; }
     DELETED=$((DELETED + 1))
     echo "${base}" >> "${DELETED_LIST}"
   fi

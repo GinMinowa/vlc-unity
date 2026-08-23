@@ -34,6 +34,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # Pin LibVLC 4 line (no 4.0 stable yet). Not master; not 3.0.x consumer stable.
+  VLC_GIT_REF: 4.0.0-dev
   ARCH: aarch64
   ARGS: -d -i z -g l
 
@@ -60,12 +62,15 @@ jobs:
       - name: Clone VLC (VideoLAN primary, GitHub fallback)
         run: |
           set -euo pipefail
-          if git clone --depth=1 https://code.videolan.org/videolan/vlc.git vlc; then
+          if git clone --depth=1 --branch "${VLC_GIT_REF}" https://code.videolan.org/videolan/vlc.git vlc; then
             echo "Cloned VLC from code.videolan.org"
           else
             echo "Primary VLC clone failed; falling back to GitHub mirror"
-            git clone --depth=1 https://github.com/videolan/vlc.git vlc
+            git clone --depth=1 --branch "${VLC_GIT_REF}" https://github.com/videolan/vlc.git vlc
           fi
+          echo "Building LibVLC from ref ${VLC_GIT_REF}"
+          git -C vlc rev-parse HEAD
+          git -C vlc describe --tags --always || true
 
       - name: Build LibVLC (extras/package/macosx/build.sh)
         run: |

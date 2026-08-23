@@ -21,6 +21,56 @@ All workflows build **without** the Videolabs trial watermark:
 Trial / watermark packaging from GitLab (`*-trial` jobs,
 `package-unity-plugins-trial`) is intentionally **not** ported.
 
+## LibVLC git ref (pinned `4.0.0-dev`)
+
+All three workflows clone VideoLAN VLC at a **fixed tag**, not floating
+`master`:
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `VLC_GIT_REF` | `4.0.0-dev` | videolan/vlc git tag for the LibVLC **4.x** line |
+
+Why this pin:
+
+- VLC Unity expects **LibVLC 4**. There is no 4.0 stable release yet;
+  `4.0.0-dev` is the tagged 4.x development line used by this plugin.
+- Consumer **3.0.x** (e.g. 3.0.23) is the wrong major and is incompatible with
+  this Unity plugin’s LibVLC 4 APIs / packaging layout (`vlc-4.0.0-dev`, etc.).
+- Floating `master` drifts: newer tips pull newer extras/tools (e.g. m4 1.4.21)
+  and GNU mirrors (`ftpmirror.gnu.org`) that have been flaky (502 / missing
+  tarballs). Tag `4.0.0-dev` keeps older extras/tools (m4 1.4.18) and
+  `GNU=http://ftp.gnu.org/gnu`.
+
+Clone pattern (every workflow, including the Windows docker `bash -c` script):
+
+```bash
+if git clone --depth=1 --branch "${VLC_GIT_REF}" https://code.videolan.org/videolan/vlc.git vlc; then
+  …
+else
+  git clone --depth=1 --branch "${VLC_GIT_REF}" https://github.com/videolan/vlc.git vlc
+fi
+echo "Building LibVLC from ref ${VLC_GIT_REF}"
+git -C vlc rev-parse HEAD
+git -C vlc describe --tags --always || true
+```
+
+Windows passes `-e VLC_GIT_REF` into `docker run` so the in-container clone
+sees the same pin.
+
+### Bumping `VLC_GIT_REF`
+
+1. Edit `VLC_GIT_REF` in:
+   - `.github/workflows/build-windows.yml`
+   - `.github/workflows/build-macos.yml`
+   - `.github/workflows/build-ios.yml`
+2. Prefer another **videolan/vlc tag** (or a known commit SHA via shallow
+   clone of that ref) on the LibVLC 4 line — do not switch to 3.0.x.
+3. Re-run all three workflows and confirm artifact layouts still match
+   (`vlc-4.0.0-dev` on Windows, etc.).
+4. iOS live555 patches from VLCKit are applied **best-effort** on this pin
+   (they targeted master tip); a patch miss logs `WARN` and does not fail the
+   job by itself.
+
 ## How to run
 
 ### Manual
@@ -107,8 +157,8 @@ Trusted sources only:
 
 | Component | Source |
 |-----------|--------|
-| VLC tree | Primary: `https://code.videolan.org/videolan/vlc` — fallback: `https://github.com/videolan/vlc` |
-| iOS live555 patches | VideoLAN VLCKit raw URLs (same as GitLab CI) |
+| VLC tree | Primary: `https://code.videolan.org/videolan/vlc` @ tag `VLC_GIT_REF` (`4.0.0-dev`) — fallback: `https://github.com/videolan/vlc` (same ref). Not floating `master`. |
+| iOS live555 patches | VideoLAN VLCKit raw URLs (same as GitLab CI); best-effort apply on `4.0.0-dev` (WARN + continue if miss) |
 | Windows toolchain image | `registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916` (GitLab `VLC_WIN_LLVM_IMAGE`) |
 | macOS / iOS tools | Homebrew (`meson`, `ninja`, `pkg-config`, `nasm`, autotools) |
 | GitHub Actions | Pinned to commit SHAs: `actions/checkout@11d5960a…` (v4.4.0), `actions/upload-artifact@ea165f8d…` (v4.6.2), `actions/download-artifact@d3f86a10…` (v4.3.0) |
