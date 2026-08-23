@@ -1,0 +1,173 @@
+# Build LibVLC + VLCUnityPlugin.dylib for macOS.
+# Ported from VideoLAN vlc-unity .gitlab-ci.yml
+# (libvlc-macos-aarch64 / libvlc-macos-x86_64 + unity-plugin-macos-*).
+# NON-watermark only: never passes -Dwatermark=true / ARGS_TRIAL.
+#
+# Matrix:
+#   - macos-14 + aarch64 (primary, matches GitLab macos-m1)
+#   - macos-13 + x86_64 (optional secondary; may be slower / Intel runners)
+
+name: Build macOS
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "PluginSource/**"
+      - "build-libvlc.sh"
+      - "cross/macos_x86_64.txt"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/build-macos.yml"
+  pull_request:
+    paths:
+      - "PluginSource/**"
+      - "build-libvlc.sh"
+      - "cross/macos_x86_64.txt"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/build-macos.yml"
+
+concurrency:
+  group: build-macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-libvlc:
+    name: libvlc-macos-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: aarch64
+          - runner: macos-13
+            arch: x86_64
+    env:
+      ARCH: ${{ matrix.arch }}
+      ARGS: -d -i z -g l
+    steps:
+      - name: Checkout vlc-unity
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+
+      - name: Install build tools (Homebrew)
+        run: |
+          set -euo pipefail
+          brew update
+          brew install meson ninja pkg-config nasm automake autoconf libtool gettext
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
+      - name: Clone VLC (VideoLAN primary, GitHub fallback)
+        run: |
+          set -euo pipefail
+          if git clone --depth=1 https://code.videolan.org/videolan/vlc.git vlc; then
+            echo "Cloned VLC from code.videolan.org"
+          else
+            echo "Primary VLC clone failed; falling back to GitHub mirror"
+            git clone --depth=1 https://github.com/videolan/vlc.git vlc
+          fi
+
+      - name: Build LibVLC (extras/package/macosx/build.sh)
+        run: |
+          set -euo pipefail
+          cd vlc
+          mkdir -p build && cd build
+          ../extras/package/macosx/build.sh ${ARGS} -a "${ARCH}"
+          rm -rf macos-install/lib/libvlc.dylib
+          rm -rf macos-install/lib/libvlccore.dylib
+          if [[ -f macos-install/lib/libvlc.12.dylib ]]; then
+            mv macos-install/lib/libvlc.12.dylib macos-install/lib/libvlc.dylib
+          fi
+          if [[ -f macos-install/lib/libvlccore.9.dylib ]]; then
+            mv macos-install/lib/libvlccore.9.dylib macos-install/lib/libvlccore.dylib
+          fi
+          mkdir -p "../../macos-${ARCH}"
+          mv macos-install "../../macos-${ARCH}/"
+
+      - name: Upload LibVLC macOS artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: libvlc-macos-${{ matrix.arch }}
+          path: |
+            macos-${{ matrix.arch }}/macos-install/include/
+            macos-${{ matrix.arch }}/macos-install/libexec/
+            macos-${{ matrix.arch }}/macos-install/lib/pkgconfig/
+            macos-${{ matrix.arch }}/macos-install/lib/vlc/
+            macos-${{ matrix.arch }}/macos-install/lib/libvlc.dylib
+            macos-${{ matrix.arch }}/macos-install/lib/libvlccore.dylib
+          retention-days: 14
+          if-no-files-found: error
+
+  build-unity-plugin:
+    name: unity-plugin-macos-${{ matrix.arch }}
+    needs: build-libvlc
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: aarch64
+          - runner: macos-13
+            arch: x86_64
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - name: Checkout vlc-unity
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+
+      - name: Install meson/ninja (Homebrew)
+        run: |
+          set -euo pipefail
+          brew install meson ninja pkg-config
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
+      - name: Download LibVLC artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: libvlc-macos-${{ matrix.arch }}
+          path: .
+
+      - name: Locate macos-install tree
+        id: libvlc
+        run: |
+          set -euo pipefail
+          INSTALL_ROOT="$(find . -type d -name macos-install | head -n1)"
+          if [[ -z "${INSTALL_ROOT}" || ! -d "${INSTALL_ROOT}/lib/pkgconfig" ]]; then
+            echo "Could not find macos-install LibVLC tree"
+            find . -maxdepth 5 -type d -print | head -n 80
+            exit 1
+          fi
+          mkdir -p "macos-${ARCH}"
+          if [[ "${INSTALL_ROOT}" != "./macos-${ARCH}/macos-install" && "${INSTALL_ROOT}" != "macos-${ARCH}/macos-install" ]]; then
+            rm -rf "macos-${ARCH}/macos-install"
+            mv "${INSTALL_ROOT}" "macos-${ARCH}/macos-install"
+          fi
+          echo "install_root=macos-${ARCH}/macos-install" >> "$GITHUB_OUTPUT"
+
+      - name: Patch libvlc.pc + Meson/Ninja build (NO watermark)
+        run: |
+          set -euo pipefail
+          cd "macos-${ARCH}/macos-install"
+          PREFIX_ESC="$(pwd | sed 's#/#\\/#g')"
+          sed -i '' "1s|.*|prefix=${PREFIX_ESC}|" lib/pkgconfig/libvlc.pc
+          cat lib/pkgconfig/libvlc.pc
+          cd ../..
+          export PKG_CONFIG_PATH="$(pwd)/macos-${ARCH}/macos-install/lib/pkgconfig"
+          meson setup "build_${ARCH}" --buildtype release
+          ninja -C "build_${ARCH}"
+          install_name_tool -add_rpath "@loader_path/" "build_${ARCH}/PluginSource/libVLCUnityPlugin.dylib"
+          ls -la "build_${ARCH}/PluginSource/"
+
+      - name: Upload VLCUnityPlugin.dylib
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: VLCUnityPlugin-macos-${{ matrix.arch }}
+          path: build_${{ matrix.arch }}/PluginSource/libVLCUnityPlugin.dylib
+          retention-days: 14
+          if-no-files-found: error
