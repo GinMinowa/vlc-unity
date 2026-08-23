@@ -37,9 +37,9 @@ concurrency:
 env:
   # Mirror GitLab VLC_WIN_LLVM_IMAGE
   VLC_WIN_LLVM_IMAGE: registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916
-  # Pin to trial v9 LibVLC commit (4.0.0-dev-37562-ge7a30c9d47),
+  # Pin to VLC master tip 2026-08-23 (matches PluginSource APIs; after media_player_cbs + named union u),
   # NOT the ancient git tag 4.0.0-dev (2017; lacks apple/build.sh).
-  VLC_GIT_REF: e7a30c9d47e8328de37cf1760a815e0af673fe12
+  VLC_GIT_REF: 7e36acb27fa6fa253677799c606f04c28b27645c
   BUILD_FOLDER: win64
   PLATFORM: windows
   CROSSFILE: windows-x86_64.txt

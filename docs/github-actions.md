@@ -28,7 +28,7 @@ All three workflows clone VideoLAN VLC at a **fixed commit SHA**, not floating
 
 | Env | Default | Meaning |
 |-----|---------|---------|
-| `VLC_GIT_REF` | `e7a30c9d47e8328de37cf1760a815e0af673fe12` | Full SHA for trial v9 LibVLC (`4.0.0-dev-37562-ge7a30c9d47`, 2026-06-17 on VideoLAN) |
+| `VLC_GIT_REF` | `7e36acb27fa6fa253677799c606f04c28b27645c` | Full SHA for PluginSource-compatible master tip LibVLC (`7e36acb27f (2026-08-23 master)`, 2026-06-17 on VideoLAN) |
 
 Why this pin:
 
@@ -36,7 +36,7 @@ Why this pin:
 - The git **tag** `4.0.0-dev` is from **2017-11-30** (commit `1f2e534`). It
   lacks `extras/package/apple/build.sh`, and old `macosx`/`win32` `build.sh`
   scripts reject modern flags — so pinning that tag is wrong for CI.
-- The trial package version string `4.0.0-dev-37562-ge7a30c9d47` maps to the
+- The trial package version string `7e36acb27f (2026-08-23 master)` maps to the
   full SHA above; that is the commit we build.
 - Consumer **3.0.x** is the wrong major for this plugin.
 - Floating `master` drifts (extras/tools, GNU mirrors); a SHA keeps builds
@@ -185,7 +185,7 @@ Trusted sources only:
 
 | Component | Source |
 |-----------|--------|
-| VLC tree | Primary: `https://code.videolan.org/videolan/vlc` @ SHA `VLC_GIT_REF` (`e7a30c9d47…` / trial v9) — fallback: `https://github.com/videolan/vlc` (same SHA). Not tag `4.0.0-dev`, not floating `master`. |
+| VLC tree | Primary: `https://code.videolan.org/videolan/vlc` @ SHA `VLC_GIT_REF` (`e7a30c9d47…` / PluginSource-compatible master tip) — fallback: `https://github.com/videolan/vlc` (same SHA). Not tag `4.0.0-dev`, not floating `master`. |
 | iOS live555 patches | VideoLAN VLCKit raw URLs (same as GitLab CI); best-effort soft apply on pinned SHA (WARN + continue if miss) |
 | Windows toolchain image | `registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916` (GitLab `VLC_WIN_LLVM_IMAGE`) |
 | macOS / iOS tools | Homebrew (`meson`, `ninja`, `pkg-config`, `nasm`, autotools) |
