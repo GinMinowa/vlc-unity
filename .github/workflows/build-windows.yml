@@ -1,0 +1,255 @@
+# Build LibVLC (win64) + VLCUnityPlugin.dll for Windows x86_64.
+# Ported from VideoLAN vlc-unity .gitlab-ci.yml (libvlc-win-x86_64 + unity-plugin-windows).
+# NON-watermark only: never passes -Dwatermark=true / ARGS_TRIAL.
+#
+# Checkout runs on the ubuntu-latest HOST (actions/checkout breaks inside the
+# VideoLAN LLVM/msvcrt image: missing Node/git/user mapping). Builds run via
+# docker run with that same image mounted on $GITHUB_WORKSPACE.
+# Image: registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916
+
+name: Build Windows (x86_64)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "PluginSource/**"
+      - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
+      - "cross/windows-x86_64.txt"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/build-windows.yml"
+  pull_request:
+    paths:
+      - "PluginSource/**"
+      - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
+      - "cross/windows-x86_64.txt"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/build-windows.yml"
+
+concurrency:
+  group: build-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Mirror GitLab VLC_WIN_LLVM_IMAGE
+  VLC_WIN_LLVM_IMAGE: registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916
+  # Production pin: vlc-unity tag 2026-3 (PluginSource old APIs) + LibVLC e7a30c9d47
+  # (trial v9 / 2026-3 engine, 2026-06-17). NOT floating master; NOT ancient git tag 4.0.0-dev.
+  VLC_GIT_REF: e7a30c9d47e8328de37cf1760a815e0af673fe12
+  BUILD_FOLDER: win64
+  PLATFORM: windows
+  CROSSFILE: windows-x86_64.txt
+  # GitLab: ARGS: -c -z -r -x -a x86_64 -i nope -g l
+  LIBVLC_ARGS: -c -z -r -x -a x86_64 -i nope -g l
+  WINE_SDK_PATH: /usr/include/wine/wine/windows/
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Stage: build-libvlc (GitLab: libvlc-win-x86_64)
+  # ---------------------------------------------------------------------------
+  build-libvlc:
+    name: libvlc-win-x86_64
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout vlc-unity
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+
+      - name: Pull VideoLAN LLVM/msvcrt image
+        run: |
+          set -euo pipefail
+          docker pull "${VLC_WIN_LLVM_IMAGE}"
+
+      - name: Build LibVLC inside VideoLAN container
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -u 0 \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            -e BUILD_FOLDER \
+            -e LIBVLC_ARGS \
+            -e VLC_GIT_REF \
+            "${VLC_WIN_LLVM_IMAGE}" \
+            bash -c '
+              set -euo pipefail
+              # bash -lc was wiping image ENV PATH; keep Docker ENV and ensure llvm-mingw is visible.
+              if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+                GCC="$(find /opt /usr/local /home -name x86_64-w64-mingw32-gcc -type f 2>/dev/null | head -n1 || true)"
+                if [[ -n "${GCC}" ]]; then
+                  export PATH="$(dirname "${GCC}"):${PATH}"
+                fi
+              fi
+              command -v x86_64-w64-mingw32-gcc
+              x86_64-w64-mingw32-gcc --version | head -n1
+
+              REF="${VLC_GIT_REF}"
+              clone_ref() {
+                local url="$1"
+                rm -rf vlc
+                git init vlc
+                git -C vlc remote add origin "$url"
+                git -C vlc fetch --depth=1 origin "$REF"
+                git -C vlc checkout --force FETCH_HEAD
+              }
+              if clone_ref https://code.videolan.org/videolan/vlc.git; then
+                echo "Cloned VLC from code.videolan.org"
+              else
+                echo "Primary failed; GitHub mirror"
+                clone_ref https://github.com/videolan/vlc.git
+              fi
+              echo "Building LibVLC from ${REF}"
+              git -C vlc rev-parse HEAD
+              git -C vlc describe --tags --always || true
+              # Prefer ftp.gnu.org: ftpmirror.gnu.org 502s for m4-1.4.21; VideoLAN contrib lacks it.
+              # Must run inside this container on the mounted /workspace/vlc tree (clone is in-container).
+              # Use double quotes for sed exprs: this whole script is wrapped in bash -c '...' so
+              # single-quoted -e '...' would terminate the outer string early (exit 127).
+              sed -i.bak -e "s|^GNU=https://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|" \
+                -e "s|^GNU=http://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|" \
+                vlc/extras/tools/packages.mak
+              grep -n "^GNU=" vlc/extras/tools/packages.mak
+              cd vlc
+              extras/package/win32/build.sh ${LIBVLC_ARGS}
+              cd "/workspace/vlc/${BUILD_FOLDER}"
+              make package-win-strip
+              rm -rf vlc-4.0.0-dev/lua/http
+              cd /workspace
+              mv vlc "vlc-${BUILD_FOLDER}"
+            '
+
+      - name: Filter LibVLC plugins (codec whitelist)
+        run: |
+          set -euo pipefail
+          # Docker wrote the tree as root; reclaim ownership before deleting plugins.
+          sudo chown -R "$(id -u):$(id -g)" "vlc-${BUILD_FOLDER}" || true
+          PLUGINS="vlc-${BUILD_FOLDER}/${BUILD_FOLDER}/vlc-4.0.0-dev/plugins"
+          if [[ ! -d "${PLUGINS}" ]]; then
+            echo "Plugins dir not at ${PLUGINS}; searching…"
+            PLUGINS="$(find "vlc-${BUILD_FOLDER}" -type d -name plugins | head -n1 || true)"
+          fi
+          if [[ -z "${PLUGINS}" || ! -d "${PLUGINS}" ]]; then
+            echo "ERROR: could not locate VLC plugins directory under vlc-${BUILD_FOLDER}"
+            find "vlc-${BUILD_FOLDER}" -maxdepth 5 -type d -print | head -n 80 || true
+            exit 1
+          fi
+          chmod +x scripts/filter-vlc-plugins.sh
+          ./scripts/filter-vlc-plugins.sh "${PLUGINS}"
+          # plugins.dat is deleted by the filter. Prefer regenerating with
+          # vlc-cache-gen when a Windows PE binary + wine are available; otherwise
+          # VLC rebuilds the cache at first runtime on the end-user machine.
+          CACHE_GEN="vlc-${BUILD_FOLDER}/${BUILD_FOLDER}/vlc-4.0.0-dev/vlc-cache-gen.exe"
+          if [[ -f "${CACHE_GEN}" ]] && command -v wine64 >/dev/null 2>&1; then
+            echo "Regenerating plugins.dat via wine64 + vlc-cache-gen.exe"
+            wine64 "${CACHE_GEN}" "${PLUGINS}" || echo "vlc-cache-gen via wine failed; plugins.dat left absent (runtime regen OK)"
+          elif [[ -f "${CACHE_GEN}" ]] && command -v wine >/dev/null 2>&1; then
+            echo "Regenerating plugins.dat via wine + vlc-cache-gen.exe"
+            wine "${CACHE_GEN}" "${PLUGINS}" || echo "vlc-cache-gen via wine failed; plugins.dat left absent (runtime regen OK)"
+          else
+            echo "NOTE: vlc-cache-gen not runnable on this Linux host; plugins.dat removed — VLC will regenerate at runtime."
+          fi
+
+      - name: Upload LibVLC win64 artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: libvlc-win-x86_64
+          path: |
+            vlc-${{ env.BUILD_FOLDER }}/${{ env.BUILD_FOLDER }}/vlc-4.0.0-dev
+            vlc-${{ env.BUILD_FOLDER }}/${{ env.BUILD_FOLDER }}/_win32
+          retention-days: 14
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Stage: build-unity-plugin (GitLab: unity-plugin-windows)
+  # ---------------------------------------------------------------------------
+  build-unity-plugin:
+    name: unity-plugin-windows
+    needs: build-libvlc
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout vlc-unity
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+
+      - name: Download LibVLC artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: libvlc-win-x86_64
+          path: .
+
+      - name: Pull VideoLAN LLVM/msvcrt image
+        run: |
+          set -euo pipefail
+          docker pull "${VLC_WIN_LLVM_IMAGE}"
+
+      - name: Meson + Ninja build VLCUnityPlugin inside container (NO watermark)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -u 0 \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            -e BUILD_FOLDER \
+            -e PLATFORM \
+            -e CROSSFILE \
+            -e WINE_SDK_PATH \
+            "${VLC_WIN_LLVM_IMAGE}" \
+            bash -c '
+              set -euo pipefail
+              # bash -lc was wiping image ENV PATH; keep Docker ENV and ensure llvm-mingw is visible.
+              if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+                GCC="$(find /opt /usr/local /home -name x86_64-w64-mingw32-gcc -type f 2>/dev/null | head -n1 || true)"
+                if [[ -n "${GCC}" ]]; then
+                  export PATH="$(dirname "${GCC}"):${PATH}"
+                fi
+              fi
+              command -v x86_64-w64-mingw32-gcc
+              x86_64-w64-mingw32-gcc --version | head -n1
+
+              WIN32_ROOT="$(find . -type d -path "*/_win32/lib/pkgconfig" | head -n1 | xargs -I{} dirname {} | xargs -I{} dirname {})"
+              if [[ -z "${WIN32_ROOT}" || ! -d "${WIN32_ROOT}/lib/pkgconfig" ]]; then
+                echo "Could not find _win32 LibVLC install tree"
+                find . -maxdepth 5 -type d -print | head -n 80
+                exit 1
+              fi
+              echo "Using LibVLC prefix: ${WIN32_ROOT}"
+              sed -i "s|^prefix=.*|prefix=$(realpath "${WIN32_ROOT}")|" "${WIN32_ROOT}/lib/pkgconfig/libvlc.pc"
+              cat "${WIN32_ROOT}/lib/pkgconfig/libvlc.pc"
+              # Intentionally omit ARGS_TRIAL / -Dwatermark=true (non-watermark build)
+              export PKG_CONFIG_PATH="$(realpath "${WIN32_ROOT}/lib/pkgconfig")"
+              meson setup "build_${PLATFORM}" \
+                --cross-file="cross/${CROSSFILE}" \
+                --buildtype release
+              ninja -C "build_${PLATFORM}"
+              ls -la "build_${PLATFORM}/PluginSource/"
+              mkdir -p "vlc-${BUILD_FOLDER}"
+              if [[ -f "build_${PLATFORM}/PluginSource/libVLCUnityPlugin.dll" ]]; then
+                mv "build_${PLATFORM}/PluginSource/libVLCUnityPlugin.dll" "vlc-${BUILD_FOLDER}/VLCUnityPlugin.dll"
+              elif [[ -f "build_${PLATFORM}/PluginSource/VLCUnityPlugin.dll" ]]; then
+                mv "build_${PLATFORM}/PluginSource/VLCUnityPlugin.dll" "vlc-${BUILD_FOLDER}/VLCUnityPlugin.dll"
+              else
+                echo "VLCUnityPlugin.dll not found under build_${PLATFORM}/PluginSource"
+                find "build_${PLATFORM}" -name "*.dll" -print
+                exit 1
+              fi
+            '
+
+      - name: Upload VLCUnityPlugin.dll
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: VLCUnityPlugin-windows-x86_64
+          path: vlc-win64/VLCUnityPlugin.dll
+          retention-days: 14
+          if-no-files-found: error

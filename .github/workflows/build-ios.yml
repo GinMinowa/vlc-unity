@@ -1,0 +1,219 @@
+# Build LibVLC (iphoneos/aarch64) + VLCUnityPlugin for iOS.
+# Ported from VideoLAN vlc-unity .gitlab-ci.yml
+# (libvlc-ios-arm64 + unity-plugin-ios-aarch64).
+# NON-watermark only: never passes -Dwatermark=true / ARGS_TRIAL.
+#
+# Single job on macos-14: build LibVLC then meson/copy_ios immediately
+# (avoids download-artifact layout mismatches).
+
+name: Build iOS (aarch64)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "PluginSource/**"
+      - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
+      - "copy_ios.sh"
+      - "cross/iphoneos.txt"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/build-ios.yml"
+  pull_request:
+    paths:
+      - "PluginSource/**"
+      - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
+      - "copy_ios.sh"
+      - "cross/iphoneos.txt"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/build-ios.yml"
+
+concurrency:
+  group: build-ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Production pin: vlc-unity tag 2026-3 (PluginSource old APIs) + LibVLC e7a30c9d47
+  # (trial v9 / 2026-3 engine, 2026-06-17). NOT floating master; NOT ancient git tag 4.0.0-dev.
+  VLC_GIT_REF: e7a30c9d47e8328de37cf1760a815e0af673fe12
+  ARCH: aarch64
+  SDKNAME: iphoneos
+  SHORT_ARCH: arm64
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Combined: libvlc-ios-arm64 + unity-plugin-ios-aarch64 (no artifact hop)
+  # ---------------------------------------------------------------------------
+  build-ios:
+    name: libvlc+plugin-ios-arm64
+    runs-on: macos-14
+    steps:
+      - name: Checkout vlc-unity
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+
+      - name: Show Xcode / SDK
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          sysctl -n hw.ncpu
+
+      - name: Install build tools (Homebrew — trusted)
+        run: |
+          set -euo pipefail
+          brew update
+          brew install meson ninja pkg-config nasm automake autoconf libtool gettext
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
+      - name: Clone VLC (VideoLAN primary, GitHub fallback)
+        run: |
+          set -euo pipefail
+          REF="${VLC_GIT_REF}"
+          clone_ref() {
+            local url="$1"
+            rm -rf vlc
+            git init vlc
+            git -C vlc remote add origin "$url"
+            git -C vlc fetch --depth=1 origin "$REF"
+            git -C vlc checkout --force FETCH_HEAD
+          }
+          if clone_ref https://code.videolan.org/videolan/vlc.git; then
+            echo "Cloned VLC from code.videolan.org"
+          else
+            echo "Primary failed; GitHub mirror"
+            clone_ref https://github.com/videolan/vlc.git
+          fi
+          echo "Building LibVLC from ${REF}"
+          git -C vlc rev-parse HEAD
+          git -C vlc describe --tags --always || true
+
+      - name: Prefer ftp.gnu.org for VLC extras/tools (ftpmirror 502s)
+        run: |
+          set -euo pipefail
+          # Trial/master tip pins GNU=https://ftpmirror.gnu.org/gnu which 502s for m4-1.4.21.
+          # VideoLAN contrib mirror lacks m4-1.4.21 (404). Official ftp.gnu.org works.
+          sed -i.bak -e 's|^GNU=https://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|' \
+            -e 's|^GNU=http://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|' \
+            vlc/extras/tools/packages.mak
+          grep -n '^GNU=' vlc/extras/tools/packages.mak
+
+      - name: Apply live555 patches from VideoLAN VLCKit (best-effort)
+        working-directory: vlc
+        run: |
+          set -euo pipefail
+          # Same URLs as .gitlab-ci.yml (.libvlc-ios-common). These patches target
+          # VLCKit / master tip; on the pinned trial-v9 SHA they may not apply cleanly.
+          # Do not fail the job solely on patch miss — soft apply is intentional.
+          curl -fsSLO https://code.videolan.org/videolan/VLCKit/-/raw/master/libvlc/patches/0001-Revert-contrib-live555-update-to-2022.07.14.patch
+          curl -fsSLO https://code.videolan.org/videolan/VLCKit/-/raw/master/libvlc/patches/0002-contrib-use-live555-version-that-is-compatible-with-.patch
+          if git apply 0001-Revert-contrib-live555-update-to-2022.07.14.patch; then
+            echo "Applied 0001 live555 revert patch"
+          else
+            echo "WARN: 0001 live555 patch did not apply on ${VLC_GIT_REF}; continuing without it"
+          fi
+          if git apply 0002-contrib-use-live555-version-that-is-compatible-with-.patch; then
+            echo "Applied 0002 live555 version patch"
+          else
+            echo "WARN: 0002 live555 patch did not apply on ${VLC_GIT_REF}; continuing without it"
+          fi
+
+      - name: Build LibVLC for iPhoneOS aarch64
+        run: |
+          set -euo pipefail
+          cd vlc
+          mkdir -p build && cd build
+          JOBS="$(sysctl -n hw.ncpu)"
+          # GitLab uses -j8; GHA uses all cores. --enable-shared matches CI.
+          ../extras/package/apple/build.sh \
+            --sdk="${SDKNAME}" \
+            --arch="${ARCH}" \
+            -j"${JOBS}" \
+            --enable-shared
+
+      - name: Ensure LibVLC install path
+        id: libvlc
+        run: |
+          set -euo pipefail
+          EXPECTED="vlc/build/vlc-${SDKNAME}-${SHORT_ARCH}"
+          if [[ -f "${EXPECTED}/lib/pkgconfig/libvlc.pc" ]]; then
+            echo "Using ${EXPECTED}"
+          else
+            PC="$(find vlc/build -name "libvlc.pc" -type f 2>/dev/null | head -n1 || true)"
+            if [[ -z "${PC}" ]]; then
+              echo "Could not find libvlc.pc under vlc/build"
+              find vlc/build -maxdepth 6 \( -type d -o -name "*.pc" \) -print 2>/dev/null | head -n 120 || true
+              exit 1
+            fi
+            FOUND_ROOT="$(dirname "$(dirname "$(dirname "${PC}")")")"
+            mkdir -p "$(dirname "${EXPECTED}")"
+            if [[ "${FOUND_ROOT}" != "${EXPECTED}" ]]; then
+              rm -rf "${EXPECTED}"
+              mv "${FOUND_ROOT}" "${EXPECTED}"
+              echo "Relocated ${FOUND_ROOT} -> ${EXPECTED}"
+            fi
+          fi
+          if [[ ! -f "${EXPECTED}/lib/pkgconfig/libvlc.pc" ]]; then
+            echo "Missing ${EXPECTED}/lib/pkgconfig/libvlc.pc after restore"
+            find "${EXPECTED}" -maxdepth 4 -print 2>/dev/null | head -n 80 || true
+            exit 1
+          fi
+          echo "vlc_root=${EXPECTED}" >> "$GITHUB_OUTPUT"
+
+      - name: Filter LibVLC plugins (codec whitelist)
+        run: |
+          set -euo pipefail
+          PLUGINS="vlc/build/vlc-${SDKNAME}-${SHORT_ARCH}/lib/vlc/plugins"
+          if [[ ! -d "${PLUGINS}" ]]; then
+            echo "Plugins dir not at ${PLUGINS}; searching…"
+            PLUGINS="$(find "vlc/build/vlc-${SDKNAME}-${SHORT_ARCH}" -type d -path '*/vlc/plugins' | head -n1 || true)"
+          fi
+          if [[ -z "${PLUGINS}" || ! -d "${PLUGINS}" ]]; then
+            echo "ERROR: could not locate VLC plugins under vlc/build/vlc-${SDKNAME}-${SHORT_ARCH}"
+            find "vlc/build" -maxdepth 8 -type d -name plugins -print | head -n 40 || true
+            exit 1
+          fi
+          chmod +x scripts/filter-vlc-plugins.sh
+          ./scripts/filter-vlc-plugins.sh "${PLUGINS}"
+          echo "NOTE: plugins.dat removed by filter; filtered tree is uploaded and what copy_ios.sh will package."
+      - name: Upload LibVLC iOS artifacts (whole tree)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: libvlc-ios-arm64
+          path: vlc/build/vlc-${{ env.SDKNAME }}-${{ env.SHORT_ARCH }}
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Patch libvlc.pc + Meson/Ninja build (NO watermark)
+        run: |
+          set -euo pipefail
+          VLC_ROOT="${{ steps.libvlc.outputs.vlc_root }}"
+          cd "${VLC_ROOT}"
+          PREFIX_ESC="$(pwd | sed 's#/#\\/#g')"
+          sed -i '' "1s|.*|prefix=${PREFIX_ESC}|" lib/pkgconfig/libvlc.pc
+          cat lib/pkgconfig/libvlc.pc
+          cd "${GITHUB_WORKSPACE}"
+
+          # Intentionally omit ARGS_TRIAL / -Dwatermark=true
+          export PKG_CONFIG_PATH="$(pwd)/${VLC_ROOT}/lib/pkgconfig"
+          meson setup --cross-file="cross/${SDKNAME}.txt" "build_${SHORT_ARCH}" --buildtype release
+          ninja -C "build_${SHORT_ARCH}"
+
+      - name: Copy iOS plugin into Assets (copy_ios.sh)
+        run: |
+          set -euo pipefail
+          chmod +x ./copy_ios.sh
+          ./copy_ios.sh "vlc/build/vlc-${SDKNAME}-${SHORT_ARCH}" "${SHORT_ARCH}"
+          find Assets/VLCUnity/Plugins/iOS -type f | head -n 50
+
+      - name: Upload iOS plugin tree
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: VLCUnityPlugin-ios-arm64
+          path: Assets/VLCUnity/Plugins/iOS
+          retention-days: 14
+          if-no-files-found: error

@@ -1,0 +1,164 @@
+# Build LibVLC + VLCUnityPlugin.dylib for macOS aarch64.
+# Ported from VideoLAN vlc-unity .gitlab-ci.yml
+# (libvlc-macos-aarch64 + unity-plugin-macos-aarch64).
+# NON-watermark only: never passes -Dwatermark=true / ARGS_TRIAL.
+#
+# Single job on macos-14 only (macos-13 / x86_64 dropped — deprecated queue).
+# Builds LibVLC then plugin in-process (no artifact hop).
+
+name: Build macOS
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "PluginSource/**"
+      - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
+      - "cross/macos_x86_64.txt"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/build-macos.yml"
+  pull_request:
+    paths:
+      - "PluginSource/**"
+      - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
+      - "cross/macos_x86_64.txt"
+      - "meson.build"
+      - "meson_options.txt"
+      - ".github/workflows/build-macos.yml"
+
+concurrency:
+  group: build-macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Production pin: vlc-unity tag 2026-3 (PluginSource old APIs) + LibVLC e7a30c9d47
+  # (trial v9 / 2026-3 engine, 2026-06-17). NOT floating master; NOT ancient git tag 4.0.0-dev.
+  VLC_GIT_REF: e7a30c9d47e8328de37cf1760a815e0af673fe12
+  ARCH: aarch64
+  ARGS: -d -i z -g l
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Combined: libvlc-macos-aarch64 + unity-plugin-macos-aarch64
+  # ---------------------------------------------------------------------------
+  build-macos:
+    name: libvlc+plugin-macos-aarch64
+    runs-on: macos-14
+    steps:
+      - name: Checkout vlc-unity
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+
+      - name: Install build tools (Homebrew)
+        run: |
+          set -euo pipefail
+          brew update
+          brew install meson ninja pkg-config nasm automake autoconf libtool gettext
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
+      - name: Clone VLC (VideoLAN primary, GitHub fallback)
+        run: |
+          set -euo pipefail
+          REF="${VLC_GIT_REF}"
+          clone_ref() {
+            local url="$1"
+            rm -rf vlc
+            git init vlc
+            git -C vlc remote add origin "$url"
+            git -C vlc fetch --depth=1 origin "$REF"
+            git -C vlc checkout --force FETCH_HEAD
+          }
+          if clone_ref https://code.videolan.org/videolan/vlc.git; then
+            echo "Cloned VLC from code.videolan.org"
+          else
+            echo "Primary failed; GitHub mirror"
+            clone_ref https://github.com/videolan/vlc.git
+          fi
+          echo "Building LibVLC from ${REF}"
+          git -C vlc rev-parse HEAD
+          git -C vlc describe --tags --always || true
+
+      - name: Prefer ftp.gnu.org for VLC extras/tools (ftpmirror 502s)
+        run: |
+          set -euo pipefail
+          # Trial/master tip pins GNU=https://ftpmirror.gnu.org/gnu which 502s for m4-1.4.21.
+          # VideoLAN contrib mirror lacks m4-1.4.21 (404). Official ftp.gnu.org works.
+          sed -i.bak -e 's|^GNU=https://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|' \
+            -e 's|^GNU=http://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|' \
+            vlc/extras/tools/packages.mak
+          grep -n '^GNU=' vlc/extras/tools/packages.mak
+
+      - name: Build LibVLC (extras/package/macosx/build.sh)
+        run: |
+          set -euo pipefail
+          cd vlc
+          mkdir -p build && cd build
+          ../extras/package/macosx/build.sh ${ARGS} -a "${ARCH}"
+          rm -rf macos-install/lib/libvlc.dylib
+          rm -rf macos-install/lib/libvlccore.dylib
+          if [[ -f macos-install/lib/libvlc.12.dylib ]]; then
+            mv macos-install/lib/libvlc.12.dylib macos-install/lib/libvlc.dylib
+          fi
+          if [[ -f macos-install/lib/libvlccore.9.dylib ]]; then
+            mv macos-install/lib/libvlccore.9.dylib macos-install/lib/libvlccore.dylib
+          fi
+          mkdir -p "../../macos-${ARCH}"
+          mv macos-install "../../macos-${ARCH}/"
+
+      - name: Filter LibVLC plugins (codec whitelist)
+        run: |
+          set -euo pipefail
+          PLUGINS="macos-${ARCH}/macos-install/lib/vlc/plugins"
+          if [[ ! -d "${PLUGINS}" ]]; then
+            echo "Plugins dir not at ${PLUGINS}; searching…"
+            PLUGINS="$(find "macos-${ARCH}" -type d -path '*/vlc/plugins' | head -n1 || true)"
+          fi
+          if [[ -z "${PLUGINS}" || ! -d "${PLUGINS}" ]]; then
+            echo "ERROR: could not locate VLC plugins under macos-${ARCH}"
+            find "macos-${ARCH}" -maxdepth 6 -type d -print | head -n 80 || true
+            exit 1
+          fi
+          chmod +x scripts/filter-vlc-plugins.sh
+          ./scripts/filter-vlc-plugins.sh "${PLUGINS}"
+          echo "NOTE: plugins.dat removed by filter; VLC regenerates cache at runtime on macOS."
+
+      - name: Upload LibVLC macOS artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: libvlc-macos-aarch64
+          path: |
+            macos-aarch64/macos-install/include/
+            macos-aarch64/macos-install/libexec/
+            macos-aarch64/macos-install/lib/pkgconfig/
+            macos-aarch64/macos-install/lib/vlc/
+            macos-aarch64/macos-install/lib/libvlc.dylib
+            macos-aarch64/macos-install/lib/libvlccore.dylib
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Patch libvlc.pc + Meson/Ninja build (NO watermark)
+        run: |
+          set -euo pipefail
+          cd "macos-${ARCH}/macos-install"
+          PREFIX_ESC="$(pwd | sed 's#/#\\/#g')"
+          sed -i '' "1s|.*|prefix=${PREFIX_ESC}|" lib/pkgconfig/libvlc.pc
+          cat lib/pkgconfig/libvlc.pc
+          cd ../..
+          # Intentionally omit ARGS_TRIAL / -Dwatermark=true
+          export PKG_CONFIG_PATH="$(pwd)/macos-${ARCH}/macos-install/lib/pkgconfig"
+          meson setup "build_${ARCH}" --buildtype release
+          ninja -C "build_${ARCH}"
+          install_name_tool -add_rpath "@loader_path/" "build_${ARCH}/PluginSource/libVLCUnityPlugin.dylib"
+          ls -la "build_${ARCH}/PluginSource/"
+
+      - name: Upload VLCUnityPlugin.dylib
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: VLCUnityPlugin-macos-aarch64
+          path: build_aarch64/PluginSource/libVLCUnityPlugin.dylib
+          retention-days: 14
+          if-no-files-found: error
