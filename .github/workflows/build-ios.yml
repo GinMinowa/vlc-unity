@@ -14,6 +14,7 @@ on:
     paths:
       - "PluginSource/**"
       - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
       - "copy_ios.sh"
       - "cross/iphoneos.txt"
       - "meson.build"
@@ -23,6 +24,7 @@ on:
     paths:
       - "PluginSource/**"
       - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
       - "copy_ios.sh"
       - "cross/iphoneos.txt"
       - "meson.build"
@@ -129,6 +131,22 @@ jobs:
           fi
           echo "vlc_root=${EXPECTED}" >> "$GITHUB_OUTPUT"
 
+      - name: Filter LibVLC plugins (codec whitelist)
+        run: |
+          set -euo pipefail
+          PLUGINS="vlc/build/vlc-${SDKNAME}-${SHORT_ARCH}/lib/vlc/plugins"
+          if [[ ! -d "${PLUGINS}" ]]; then
+            echo "Plugins dir not at ${PLUGINS}; searching…"
+            PLUGINS="$(find "vlc/build/vlc-${SDKNAME}-${SHORT_ARCH}" -type d -path '*/vlc/plugins' | head -n1 || true)"
+          fi
+          if [[ -z "${PLUGINS}" || ! -d "${PLUGINS}" ]]; then
+            echo "ERROR: could not locate VLC plugins under vlc/build/vlc-${SDKNAME}-${SHORT_ARCH}"
+            find "vlc/build" -maxdepth 8 -type d -name plugins -print | head -n 40 || true
+            exit 1
+          fi
+          chmod +x scripts/filter-vlc-plugins.sh
+          ./scripts/filter-vlc-plugins.sh "${PLUGINS}"
+          echo "NOTE: plugins.dat removed by filter; filtered tree is uploaded and what copy_ios.sh will package."
       - name: Upload LibVLC iOS artifacts (whole tree)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

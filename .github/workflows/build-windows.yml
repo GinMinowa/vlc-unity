@@ -15,6 +15,7 @@ on:
     paths:
       - "PluginSource/**"
       - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
       - "cross/windows-x86_64.txt"
       - "meson.build"
       - "meson_options.txt"
@@ -23,6 +24,7 @@ on:
     paths:
       - "PluginSource/**"
       - "build-libvlc.sh"
+      - "scripts/filter-vlc-plugins.sh"
       - "cross/windows-x86_64.txt"
       - "meson.build"
       - "meson_options.txt"
@@ -99,6 +101,35 @@ jobs:
               cd /workspace
               mv vlc "vlc-${BUILD_FOLDER}"
             '
+
+      - name: Filter LibVLC plugins (codec whitelist)
+        run: |
+          set -euo pipefail
+          PLUGINS="vlc-${BUILD_FOLDER}/${BUILD_FOLDER}/vlc-4.0.0-dev/plugins"
+          if [[ ! -d "${PLUGINS}" ]]; then
+            echo "Plugins dir not at ${PLUGINS}; searching…"
+            PLUGINS="$(find "vlc-${BUILD_FOLDER}" -type d -name plugins | head -n1 || true)"
+          fi
+          if [[ -z "${PLUGINS}" || ! -d "${PLUGINS}" ]]; then
+            echo "ERROR: could not locate VLC plugins directory under vlc-${BUILD_FOLDER}"
+            find "vlc-${BUILD_FOLDER}" -maxdepth 5 -type d -print | head -n 80 || true
+            exit 1
+          fi
+          chmod +x scripts/filter-vlc-plugins.sh
+          ./scripts/filter-vlc-plugins.sh "${PLUGINS}"
+          # plugins.dat is deleted by the filter. Prefer regenerating with
+          # vlc-cache-gen when a Windows PE binary + wine are available; otherwise
+          # VLC rebuilds the cache at first runtime on the end-user machine.
+          CACHE_GEN="vlc-${BUILD_FOLDER}/${BUILD_FOLDER}/vlc-4.0.0-dev/vlc-cache-gen.exe"
+          if [[ -f "${CACHE_GEN}" ]] && command -v wine64 >/dev/null 2>&1; then
+            echo "Regenerating plugins.dat via wine64 + vlc-cache-gen.exe"
+            wine64 "${CACHE_GEN}" "${PLUGINS}" || echo "vlc-cache-gen via wine failed; plugins.dat left absent (runtime regen OK)"
+          elif [[ -f "${CACHE_GEN}" ]] && command -v wine >/dev/null 2>&1; then
+            echo "Regenerating plugins.dat via wine + vlc-cache-gen.exe"
+            wine "${CACHE_GEN}" "${PLUGINS}" || echo "vlc-cache-gen via wine failed; plugins.dat left absent (runtime regen OK)"
+          else
+            echo "NOTE: vlc-cache-gen not runnable on this Linux host; plugins.dat removed — VLC will regenerate at runtime."
+          fi
 
       - name: Upload LibVLC win64 artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

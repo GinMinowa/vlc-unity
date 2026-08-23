@@ -35,6 +35,7 @@ Each workflow also runs on `push` and `pull_request` when relevant paths change:
 
 - `PluginSource/**`
 - `build-libvlc.sh` (and `copy_ios.sh` for iOS)
+- `scripts/filter-vlc-plugins.sh`
 - Platform cross files / `meson.build` / `meson_options.txt`
 - The workflow YAML itself
 
@@ -63,6 +64,42 @@ Download from the completed workflow run page under **Artifacts**.
 - **iOS / macOS:** **single job** each — LibVLC then meson/plugin in the same
   runner, then upload both artifacts. This avoids `download-artifact` path
   layout mismatches (e.g. flattened `lib/` vs `vlc/build/vlc-iphoneos-arm64`).
+
+## Codec-filtered LibVLC packaging
+
+After each platform’s LibVLC build (and **before** artifact upload / `copy_ios.sh`),
+workflows run `scripts/filter-vlc-plugins.sh` on the VLC `plugins/` tree. The
+script keeps only modules needed for soft + hardware decode of **MPEG-1, MPEG-2,
+VP8, VP9, H.264, H.265/HEVC**, plus essential demux/access/chroma/packetizer/
+audio-out so Unity can open and play files. Everything else (Qt/skins, DVD,
+Blu-ray, visualizations, Chromecast, VNC, …) is deleted to shrink artifacts.
+
+| Workflow | Plugins path filtered |
+|----------|------------------------|
+| Windows | `vlc-win64/win64/vlc-4.0.0-dev/plugins` (host, after docker build) |
+| macOS | `macos-aarch64/macos-install/lib/vlc/plugins` |
+| iOS | `vlc/build/vlc-iphoneos-arm64/lib/vlc/plugins` (before `copy_ios.sh`) |
+
+Whitelist intent (see comments in the script):
+
+- **Soft decode:** `avcodec`, `avformat`
+- **HW decode:** VideoToolbox, D3D11VA/DXVA2, NVDEC, MediaCodec, VAAPI/VDPAU
+- **Packetizers:** h264/hevc/mpeg*/aac/copy (+ optional vc1)
+- **Demux:** mp4, mkv, avi, ts, ps, es, asf, ogg, rawvid, mpeg, playlist, adaptive, …
+- **Access:** filesystem/file, http(s), imem, ftp, tcp/udp/rtp
+- **Chroma:** swscale, yuv, i420, cvpx, d3d11_fmt, `*chroma*`
+- **Audio out (minimal):** adummy, afile, wasapi/directsound/waveout, auhal/coreaudio/audiounit, amem
+
+`plugins.dat` is removed after filtering. On Windows the workflow tries
+`wine` + `vlc-cache-gen.exe` when available; otherwise VLC regenerates the
+cache at first runtime.
+
+### Widening the keep-list
+
+Edit `WHITELIST_PATTERNS` in `scripts/filter-vlc-plugins.sh` (bash ERE matched
+against a normalized basename: strip `lib` prefix, `_plugin` suffix, and
+extension). Re-run any affected workflow; path filters include the script so
+pushes to it trigger rebuilds.
 
 ## Supply chain notes
 
