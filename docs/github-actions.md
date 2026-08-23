@@ -21,35 +21,48 @@ All workflows build **without** the Videolabs trial watermark:
 Trial / watermark packaging from GitLab (`*-trial` jobs,
 `package-unity-plugins-trial`) is intentionally **not** ported.
 
-## LibVLC git ref (pinned `4.0.0-dev`)
+## LibVLC git ref (pinned commit SHA)
 
-All three workflows clone VideoLAN VLC at a **fixed tag**, not floating
-`master`:
+All three workflows clone VideoLAN VLC at a **fixed commit SHA**, not floating
+`master` and **not** the ancient git tag `4.0.0-dev`:
 
 | Env | Default | Meaning |
 |-----|---------|---------|
-| `VLC_GIT_REF` | `4.0.0-dev` | videolan/vlc git tag for the LibVLC **4.x** line |
+| `VLC_GIT_REF` | `e7a30c9d47e8328de37cf1760a815e0af673fe12` | Full SHA for trial v9 LibVLC (`4.0.0-dev-37562-ge7a30c9d47`, 2026-06-17 on VideoLAN) |
 
 Why this pin:
 
-- VLC Unity expects **LibVLC 4**. There is no 4.0 stable release yet;
-  `4.0.0-dev` is the tagged 4.x development line used by this plugin.
-- Consumer **3.0.x** (e.g. 3.0.23) is the wrong major and is incompatible with
-  this Unity plugin’s LibVLC 4 APIs / packaging layout (`vlc-4.0.0-dev`, etc.).
-- Floating `master` drifts: newer tips pull newer extras/tools (e.g. m4 1.4.21)
-  and GNU mirrors (`ftpmirror.gnu.org`) that have been flaky (502 / missing
-  tarballs). Tag `4.0.0-dev` keeps older extras/tools (m4 1.4.18) and
-  `GNU=http://ftp.gnu.org/gnu`.
+- VLC Unity expects **LibVLC 4**. There is no 4.0 stable release yet.
+- The git **tag** `4.0.0-dev` is from **2017-11-30** (commit `1f2e534`). It
+  lacks `extras/package/apple/build.sh`, and old `macosx`/`win32` `build.sh`
+  scripts reject modern flags — so pinning that tag is wrong for CI.
+- The trial package version string `4.0.0-dev-37562-ge7a30c9d47` maps to the
+  full SHA above; that is the commit we build.
+- Consumer **3.0.x** is the wrong major for this plugin.
+- Floating `master` drifts (extras/tools, GNU mirrors); a SHA keeps builds
+  reproducible.
 
-Clone pattern (every workflow, including the Windows docker `bash -c` script):
+Clone pattern (every workflow, including the Windows docker `bash -c` script).
+**Do not** use `git clone --branch` — a SHA is not a branch/tag name for
+`--branch`. Use shallow fetch-by-SHA instead:
 
 ```bash
-if git clone --depth=1 --branch "${VLC_GIT_REF}" https://code.videolan.org/videolan/vlc.git vlc; then
-  …
+REF="${VLC_GIT_REF}"
+clone_ref() {
+  local url="$1"
+  rm -rf vlc
+  git init vlc
+  git -C vlc remote add origin "$url"
+  git -C vlc fetch --depth=1 origin "$REF"
+  git -C vlc checkout --force FETCH_HEAD
+}
+if clone_ref https://code.videolan.org/videolan/vlc.git; then
+  echo "Cloned VLC from code.videolan.org"
 else
-  git clone --depth=1 --branch "${VLC_GIT_REF}" https://github.com/videolan/vlc.git vlc
+  echo "Primary failed; GitHub mirror"
+  clone_ref https://github.com/videolan/vlc.git
 fi
-echo "Building LibVLC from ref ${VLC_GIT_REF}"
+echo "Building LibVLC from ${REF}"
 git -C vlc rev-parse HEAD
 git -C vlc describe --tags --always || true
 ```
@@ -63,8 +76,8 @@ sees the same pin.
    - `.github/workflows/build-windows.yml`
    - `.github/workflows/build-macos.yml`
    - `.github/workflows/build-ios.yml`
-2. Prefer another **videolan/vlc tag** (or a known commit SHA via shallow
-   clone of that ref) on the LibVLC 4 line — do not switch to 3.0.x.
+2. Prefer a **full commit SHA** on the LibVLC 4 line (or a modern tag that is
+   not the 2017 `4.0.0-dev`) — do not switch to 3.0.x.
 3. Re-run all three workflows and confirm artifact layouts still match
    (`vlc-4.0.0-dev` on Windows, etc.).
 4. iOS live555 patches from VLCKit are applied **best-effort** on this pin
@@ -157,8 +170,8 @@ Trusted sources only:
 
 | Component | Source |
 |-----------|--------|
-| VLC tree | Primary: `https://code.videolan.org/videolan/vlc` @ tag `VLC_GIT_REF` (`4.0.0-dev`) — fallback: `https://github.com/videolan/vlc` (same ref). Not floating `master`. |
-| iOS live555 patches | VideoLAN VLCKit raw URLs (same as GitLab CI); best-effort apply on `4.0.0-dev` (WARN + continue if miss) |
+| VLC tree | Primary: `https://code.videolan.org/videolan/vlc` @ SHA `VLC_GIT_REF` (`e7a30c9d47…` / trial v9) — fallback: `https://github.com/videolan/vlc` (same SHA). Not tag `4.0.0-dev`, not floating `master`. |
+| iOS live555 patches | VideoLAN VLCKit raw URLs (same as GitLab CI); best-effort soft apply on pinned SHA (WARN + continue if miss) |
 | Windows toolchain image | `registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916` (GitLab `VLC_WIN_LLVM_IMAGE`) |
 | macOS / iOS tools | Homebrew (`meson`, `ninja`, `pkg-config`, `nasm`, autotools) |
 | GitHub Actions | Pinned to commit SHAs: `actions/checkout@11d5960a…` (v4.4.0), `actions/upload-artifact@ea165f8d…` (v4.6.2), `actions/download-artifact@d3f86a10…` (v4.3.0) |

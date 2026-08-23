@@ -37,8 +37,9 @@ concurrency:
 env:
   # Mirror GitLab VLC_WIN_LLVM_IMAGE
   VLC_WIN_LLVM_IMAGE: registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916
-  # Pin LibVLC 4 line (no 4.0 stable yet). Not master; not 3.0.x consumer stable.
-  VLC_GIT_REF: 4.0.0-dev
+  # Pin to trial v9 LibVLC commit (4.0.0-dev-37562-ge7a30c9d47),
+  # NOT the ancient git tag 4.0.0-dev (2017; lacks apple/build.sh).
+  VLC_GIT_REF: e7a30c9d47e8328de37cf1760a815e0af673fe12
   BUILD_FOLDER: win64
   PLATFORM: windows
   CROSSFILE: windows-x86_64.txt
@@ -90,13 +91,22 @@ jobs:
               command -v x86_64-w64-mingw32-gcc
               x86_64-w64-mingw32-gcc --version | head -n1
 
-              if git clone --depth=1 --branch "${VLC_GIT_REF}" https://code.videolan.org/videolan/vlc.git vlc; then
+              REF="${VLC_GIT_REF}"
+              clone_ref() {
+                local url="$1"
+                rm -rf vlc
+                git init vlc
+                git -C vlc remote add origin "$url"
+                git -C vlc fetch --depth=1 origin "$REF"
+                git -C vlc checkout --force FETCH_HEAD
+              }
+              if clone_ref https://code.videolan.org/videolan/vlc.git; then
                 echo "Cloned VLC from code.videolan.org"
               else
-                echo "Primary VLC clone failed; falling back to GitHub mirror"
-                git clone --depth=1 --branch "${VLC_GIT_REF}" https://github.com/videolan/vlc.git vlc
+                echo "Primary failed; GitHub mirror"
+                clone_ref https://github.com/videolan/vlc.git
               fi
-              echo "Building LibVLC from ref ${VLC_GIT_REF}"
+              echo "Building LibVLC from ${REF}"
               git -C vlc rev-parse HEAD
               git -C vlc describe --tags --always || true
               cd vlc

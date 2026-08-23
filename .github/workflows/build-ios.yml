@@ -36,8 +36,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Pin LibVLC 4 line (no 4.0 stable yet). Not master; not 3.0.x consumer stable.
-  VLC_GIT_REF: 4.0.0-dev
+  # Pin to trial v9 LibVLC commit (4.0.0-dev-37562-ge7a30c9d47),
+  # NOT the ancient git tag 4.0.0-dev (2017; lacks apple/build.sh).
+  VLC_GIT_REF: e7a30c9d47e8328de37cf1760a815e0af673fe12
   ARCH: aarch64
   SDKNAME: iphoneos
   SHORT_ARCH: arm64
@@ -72,13 +73,22 @@ jobs:
       - name: Clone VLC (VideoLAN primary, GitHub fallback)
         run: |
           set -euo pipefail
-          if git clone --depth=1 --branch "${VLC_GIT_REF}" https://code.videolan.org/videolan/vlc.git vlc; then
+          REF="${VLC_GIT_REF}"
+          clone_ref() {
+            local url="$1"
+            rm -rf vlc
+            git init vlc
+            git -C vlc remote add origin "$url"
+            git -C vlc fetch --depth=1 origin "$REF"
+            git -C vlc checkout --force FETCH_HEAD
+          }
+          if clone_ref https://code.videolan.org/videolan/vlc.git; then
             echo "Cloned VLC from code.videolan.org"
           else
-            echo "Primary VLC clone failed; falling back to GitHub mirror"
-            git clone --depth=1 --branch "${VLC_GIT_REF}" https://github.com/videolan/vlc.git vlc
+            echo "Primary failed; GitHub mirror"
+            clone_ref https://github.com/videolan/vlc.git
           fi
-          echo "Building LibVLC from ref ${VLC_GIT_REF}"
+          echo "Building LibVLC from ${REF}"
           git -C vlc rev-parse HEAD
           git -C vlc describe --tags --always || true
 
@@ -87,9 +97,8 @@ jobs:
         run: |
           set -euo pipefail
           # Same URLs as .gitlab-ci.yml (.libvlc-ios-common). These patches target
-          # VLCKit / master tip; on pinned tag 4.0.0-dev they may not apply cleanly.
-          # Do not fail the job solely on patch miss — build can proceed without them
-          # on this ref (extras/tools / live555 already match the tagged tree).
+          # VLCKit / master tip; on the pinned trial-v9 SHA they may not apply cleanly.
+          # Do not fail the job solely on patch miss — soft apply is intentional.
           curl -fsSLO https://code.videolan.org/videolan/VLCKit/-/raw/master/libvlc/patches/0001-Revert-contrib-live555-update-to-2022.07.14.patch
           curl -fsSLO https://code.videolan.org/videolan/VLCKit/-/raw/master/libvlc/patches/0002-contrib-use-live555-version-that-is-compatible-with-.patch
           if git apply 0001-Revert-contrib-live555-update-to-2022.07.14.patch; then
