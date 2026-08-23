@@ -3,7 +3,8 @@
 # (libvlc-ios-arm64 + unity-plugin-ios-aarch64).
 # NON-watermark only: never passes -Dwatermark=true / ARGS_TRIAL.
 #
-# Runner: macos-14 (Xcode preinstalled). Live555 patches from VideoLAN VLCKit.
+# Single job on macos-14: build LibVLC then meson/copy_ios immediately
+# (avoids download-artifact layout mismatches).
 
 name: Build iOS (aarch64)
 
@@ -39,10 +40,10 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Stage: build-libvlc (GitLab: libvlc-ios-arm64)
+  # Combined: libvlc-ios-arm64 + unity-plugin-ios-aarch64 (no artifact hop)
   # ---------------------------------------------------------------------------
-  build-libvlc:
-    name: libvlc-ios-arm64
+  build-ios:
+    name: libvlc+plugin-ios-arm64
     runs-on: macos-14
     steps:
       - name: Checkout vlc-unity
@@ -99,63 +100,42 @@ jobs:
             -j"${JOBS}" \
             --enable-shared
 
-      - name: Upload LibVLC iOS artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: libvlc-ios-arm64
-          path: |
-            vlc/build/vlc-${{ env.SDKNAME }}-${{ env.SHORT_ARCH }}/lib/
-            vlc/build/vlc-${{ env.SDKNAME }}-${{ env.SHORT_ARCH }}/include/
-          retention-days: 14
-          if-no-files-found: error
-
-  # ---------------------------------------------------------------------------
-  # Stage: build-unity-plugin (GitLab: unity-plugin-ios-aarch64)
-  # ---------------------------------------------------------------------------
-  build-unity-plugin:
-    name: unity-plugin-ios-aarch64
-    needs: build-libvlc
-    runs-on: macos-14
-    steps:
-      - name: Checkout vlc-unity
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          submodules: recursive
-
-      - name: Install meson/ninja (Homebrew)
-        run: |
-          set -euo pipefail
-          brew install meson ninja pkg-config
-          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
-
-      - name: Download LibVLC artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: libvlc-ios-arm64
-          path: .
-
-      - name: Restore expected LibVLC path
+      - name: Ensure LibVLC install path
         id: libvlc
         run: |
           set -euo pipefail
           EXPECTED="vlc/build/vlc-${SDKNAME}-${SHORT_ARCH}"
-          if [[ -d "${EXPECTED}/lib/pkgconfig" ]]; then
+          if [[ -f "${EXPECTED}/lib/pkgconfig/libvlc.pc" ]]; then
             echo "Using ${EXPECTED}"
           else
-            # Artifact download may flatten; find pkgconfig and relocate
-            PC_DIR="$(find . -type d -path '*/lib/pkgconfig' | head -n1)"
-            if [[ -z "${PC_DIR}" ]]; then
-              echo "Could not find LibVLC pkgconfig"
-              find . -maxdepth 6 -type d -print | head -n 100
+            PC="$(find vlc/build -name "libvlc.pc" -type f 2>/dev/null | head -n1 || true)"
+            if [[ -z "${PC}" ]]; then
+              echo "Could not find libvlc.pc under vlc/build"
+              find vlc/build -maxdepth 6 \( -type d -o -name "*.pc" \) -print 2>/dev/null | head -n 120 || true
               exit 1
             fi
-            FOUND_ROOT="$(dirname "$(dirname "${PC_DIR}")")"
+            FOUND_ROOT="$(dirname "$(dirname "$(dirname "${PC}")")")"
             mkdir -p "$(dirname "${EXPECTED}")"
-            rm -rf "${EXPECTED}"
-            mv "${FOUND_ROOT}" "${EXPECTED}"
-            echo "Relocated ${FOUND_ROOT} -> ${EXPECTED}"
+            if [[ "${FOUND_ROOT}" != "${EXPECTED}" ]]; then
+              rm -rf "${EXPECTED}"
+              mv "${FOUND_ROOT}" "${EXPECTED}"
+              echo "Relocated ${FOUND_ROOT} -> ${EXPECTED}"
+            fi
+          fi
+          if [[ ! -f "${EXPECTED}/lib/pkgconfig/libvlc.pc" ]]; then
+            echo "Missing ${EXPECTED}/lib/pkgconfig/libvlc.pc after restore"
+            find "${EXPECTED}" -maxdepth 4 -print 2>/dev/null | head -n 80 || true
+            exit 1
           fi
           echo "vlc_root=${EXPECTED}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload LibVLC iOS artifacts (whole tree)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: libvlc-ios-arm64
+          path: vlc/build/vlc-${{ env.SDKNAME }}-${{ env.SHORT_ARCH }}
+          retention-days: 14
+          if-no-files-found: error
 
       - name: Patch libvlc.pc + Meson/Ninja build (NO watermark)
         run: |

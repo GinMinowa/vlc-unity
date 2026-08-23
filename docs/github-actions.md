@@ -6,8 +6,8 @@ Actions runners for [GinMinowa/vlc-unity](https://github.com/GinMinowa/vlc-unity
 
 | Workflow | File | Runner(s) | GitLab jobs mirrored |
 |----------|------|-----------|----------------------|
-| Windows x86_64 | `.github/workflows/build-windows.yml` | `ubuntu-latest` + VideoLAN LLVM/msvcrt container | `libvlc-win-x86_64`, `unity-plugin-windows` |
-| macOS | `.github/workflows/build-macos.yml` | `macos-14` (aarch64), `macos-13` (x86_64) | `libvlc-macos-*`, `unity-plugin-macos-*` |
+| Windows x86_64 | `.github/workflows/build-windows.yml` | `ubuntu-latest` + `docker run` VideoLAN LLVM/msvcrt image | `libvlc-win-x86_64`, `unity-plugin-windows` |
+| macOS | `.github/workflows/build-macos.yml` | `macos-14` (aarch64 only) | `libvlc-macos-aarch64`, `unity-plugin-macos-aarch64` |
 | iOS arm64 | `.github/workflows/build-ios.yml` | `macos-14` | `libvlc-ios-arm64`, `unity-plugin-ios-aarch64` |
 
 ## Non-watermark (critical)
@@ -48,18 +48,21 @@ Jobs use `actions/upload-artifact` (pinned). Retention is **14 days**.
 |----------|------------------|----------|
 | Windows | `libvlc-win-x86_64` | LibVLC `vlc-4.0.0-dev` + `_win32` SDK tree |
 | Windows | `VLCUnityPlugin-windows-x86_64` | `VLCUnityPlugin.dll` |
-| macOS | `libvlc-macos-aarch64` / `libvlc-macos-x86_64` | macOS LibVLC install bits |
-| macOS | `VLCUnityPlugin-macos-aarch64` / `…-x86_64` | `libVLCUnityPlugin.dylib` |
-| iOS | `libvlc-ios-arm64` | `lib/` + `include/` for iphoneos/arm64 |
+| macOS | `libvlc-macos-aarch64` | macOS LibVLC install bits |
+| macOS | `VLCUnityPlugin-macos-aarch64` | `libVLCUnityPlugin.dylib` |
+| iOS | `libvlc-ios-arm64` | Whole `vlc-iphoneos-arm64` install tree |
 | iOS | `VLCUnityPlugin-ios-arm64` | `Assets/VLCUnity/Plugins/iOS` (via `copy_ios.sh`) |
 
 Download from the completed workflow run page under **Artifacts**.
 
-Typical flow:
+### Job layout
 
-1. `build-libvlc` compiles / packages LibVLC and uploads the SDK.
-2. `build-unity-plugin` downloads that artifact, patches `libvlc.pc` `prefix=`,
-   runs `meson` + `ninja`, and uploads the Unity plugin binary / tree.
+- **Windows:** two jobs still (LibVLC artifact → plugin). Checkout and
+  `upload`/`download-artifact` run on the **host**; compile steps use
+  `docker run` (see below).
+- **iOS / macOS:** **single job** each — LibVLC then meson/plugin in the same
+  runner, then upload both artifacts. This avoids `download-artifact` path
+  layout mismatches (e.g. flattened `lib/` vs `vlc/build/vlc-iphoneos-arm64`).
 
 ## Supply chain notes
 
@@ -76,35 +79,48 @@ Trusted sources only:
 Do **not** introduce third-party binary caches, unofficial LibVLC zips, or
 unpinned marketplace actions without review.
 
-## Windows container approach
+## Windows: docker run (not job `container:`)
 
 GitLab builds Windows LibVLC inside
 `registry.videolan.org/vlc-debian-llvm-msvcrt` using
 `extras/package/win32/build.sh` and cross-compiles the plugin with
-`cross/windows-x86_64.txt`. The GHA Windows workflow uses the **same** image
-via `container:` on `ubuntu-latest` for parity.
+`cross/windows-x86_64.txt`.
+
+GHA does **not** use job-level `container:` for that image: `actions/checkout`
+often fails inside it (missing Node / git / UID mapping). Instead:
+
+1. Checkout on `ubuntu-latest` (host).
+2. `docker pull` the same VideoLAN tag.
+3. `docker run --rm -u 0 -v "$GITHUB_WORKSPACE:/workspace" -w /workspace …`
+   for clone + `build.sh` / meson+ninja.
 
 Assumptions:
 
 - The VideoLAN registry image is **publicly pullable** from GitHub-hosted
-  runners (many VideoLAN images are; if pull fails, the job fails early).
+  runners (confirmed reachable when the old job-container path got past pull).
 - Full win64 LibVLC compile is heavy (hours + large disk). Public GHA disk /
   time limits may be tighter than VideoLAN’s private runners.
 - Native `windows-latest` + MSVC is **not** used here; that would diverge from
   GitLab’s LLVM/msvcrt cross path.
+
+## macOS: macos-14 only
+
+The macOS workflow keeps **macos-14 + aarch64** only. The previous
+`macos-13` / x86_64 matrix entry was dropped (deprecated runner, long queue).
 
 ## Known gaps vs private VideoLAN runners
 
 | Area | Gap |
 |------|-----|
 | Runner hardware | Public GHA macOS/Linux vs VideoLAN tagged runners (`monterey`, `macos-m1`, `macos-xcode26`, Docker amd64). Xcode major version may differ from VideoLAN’s `macos-xcode26` tag. |
-| Android / UWP / Linux / packaging | Not ported in this first PR set (only Windows classic, macOS, iOS). |
+| Android / UWP / Linux / packaging | Not ported in this first PR set (only Windows classic, macOS aarch64, iOS). |
 | LibVLCSharp .NET jobs | Not ported (`libvlcsharp-all` / `libvlcsharp-ios`). |
 | `package-unity-plugin.sh` | No combined Unity package job yet; download per-platform artifacts and assemble locally. |
 | Sandbox PATH | GitLab uses `$HOME/sandbox/bin` for meson; GHA installs meson via brew (Apple) or the container (Windows). |
 | Time / disk | Full LibVLC contrib builds may hit GHA timeouts or disk limits; re-run or self-hosted runners may be needed. |
 | Registry auth | If `registry.videolan.org` ever requires auth from GHA IPs, Windows jobs need a mirror or self-hosted runner with the image cached. |
 | Watermark / commercial | Trial watermark builds and Videolabs packaging are out of scope. |
+| macOS Intel | x86_64 / macos-13 path not built on GHA anymore. |
 
 ## Local verification tips
 

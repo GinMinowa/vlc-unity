@@ -2,10 +2,10 @@
 # Ported from VideoLAN vlc-unity .gitlab-ci.yml (libvlc-win-x86_64 + unity-plugin-windows).
 # NON-watermark only: never passes -Dwatermark=true / ARGS_TRIAL.
 #
-# Uses the same VideoLAN LLVM/msvcrt container as GitLab for parity.
+# Checkout runs on the ubuntu-latest HOST (actions/checkout breaks inside the
+# VideoLAN LLVM/msvcrt image: missing Node/git/user mapping). Builds run via
+# docker run with that same image mounted on $GITHUB_WORKSPACE.
 # Image: registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916
-# If the registry is unreachable from GHA, this workflow will fail at pull time;
-# see docs/github-actions.md for gaps vs private VideoLAN runners.
 
 name: Build Windows (x86_64)
 
@@ -49,8 +49,6 @@ jobs:
   build-libvlc:
     name: libvlc-win-x86_64
     runs-on: ubuntu-latest
-    container:
-      image: registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916
     defaults:
       run:
         shell: bash
@@ -60,31 +58,37 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Clone VLC (VideoLAN primary, GitHub fallback)
+      - name: Pull VideoLAN LLVM/msvcrt image
         run: |
           set -euo pipefail
-          if git clone --depth=1 https://code.videolan.org/videolan/vlc.git vlc; then
-            echo "Cloned VLC from code.videolan.org"
-          else
-            echo "Primary VLC clone failed; falling back to GitHub mirror"
-            git clone --depth=1 https://github.com/videolan/vlc.git vlc
-          fi
+          docker pull "${VLC_WIN_LLVM_IMAGE}"
 
-      - name: Build LibVLC (extras/package/win32/build.sh)
-        working-directory: vlc
+      - name: Build LibVLC inside VideoLAN container
         run: |
           set -euo pipefail
-          # Exact GitLab script parity (non-UWP classic win64)
-          extras/package/win32/build.sh ${LIBVLC_ARGS}
-
-      - name: Package / strip LibVLC (after_script parity)
-        run: |
-          set -euo pipefail
-          cd "./vlc/${BUILD_FOLDER}"
-          make package-win-strip
-          rm -rf vlc-4.0.0-dev/lua/http
-          cd ../..
-          mv vlc "vlc-${BUILD_FOLDER}"
+          docker run --rm \
+            -u 0 \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            -e BUILD_FOLDER \
+            -e LIBVLC_ARGS \
+            "${VLC_WIN_LLVM_IMAGE}" \
+            bash -lc '
+              set -euo pipefail
+              if git clone --depth=1 https://code.videolan.org/videolan/vlc.git vlc; then
+                echo "Cloned VLC from code.videolan.org"
+              else
+                echo "Primary VLC clone failed; falling back to GitHub mirror"
+                git clone --depth=1 https://github.com/videolan/vlc.git vlc
+              fi
+              cd vlc
+              extras/package/win32/build.sh ${LIBVLC_ARGS}
+              cd "/workspace/vlc/${BUILD_FOLDER}"
+              make package-win-strip
+              rm -rf vlc-4.0.0-dev/lua/http
+              cd /workspace
+              mv vlc "vlc-${BUILD_FOLDER}"
+            '
 
       - name: Upload LibVLC win64 artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -103,8 +107,6 @@ jobs:
     name: unity-plugin-windows
     needs: build-libvlc
     runs-on: ubuntu-latest
-    container:
-      image: registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916
     defaults:
       run:
         shell: bash
@@ -120,49 +122,52 @@ jobs:
           name: libvlc-win-x86_64
           path: .
 
-      - name: Locate LibVLC pkgconfig tree
-        id: libvlc
+      - name: Pull VideoLAN LLVM/msvcrt image
         run: |
           set -euo pipefail
-          # Artifact layout may flatten or nest; find _win32/lib/pkgconfig
-          WIN32_ROOT="$(find . -type d -path '*/_win32/lib/pkgconfig' | head -n1 | xargs -I{} dirname {} | xargs -I{} dirname {})"
-          if [[ -z "${WIN32_ROOT}" || ! -d "${WIN32_ROOT}/lib/pkgconfig" ]]; then
-            echo "Could not find _win32 LibVLC install tree"
-            find . -maxdepth 5 -type d -print | head -n 80
-            exit 1
-          fi
-          echo "win32_root=${WIN32_ROOT}" >> "$GITHUB_OUTPUT"
-          echo "Using LibVLC prefix: ${WIN32_ROOT}"
+          docker pull "${VLC_WIN_LLVM_IMAGE}"
 
-      - name: Patch libvlc.pc prefix
+      - name: Meson + Ninja build VLCUnityPlugin inside container (NO watermark)
         run: |
           set -euo pipefail
-          WIN32_ROOT="${{ steps.libvlc.outputs.win32_root }}"
-          sed -i "s|^prefix=.*|prefix=$(realpath "${WIN32_ROOT}")|" "${WIN32_ROOT}/lib/pkgconfig/libvlc.pc"
-          cat "${WIN32_ROOT}/lib/pkgconfig/libvlc.pc"
-
-      - name: Meson + Ninja build VLCUnityPlugin (NO watermark)
-        run: |
-          set -euo pipefail
-          WIN32_ROOT="${{ steps.libvlc.outputs.win32_root }}"
-          # Intentionally omit ARGS_TRIAL / -Dwatermark=true (non-watermark build)
-          export PKG_CONFIG_PATH="$(realpath "${WIN32_ROOT}/lib/pkgconfig")"
-          meson setup "build_${PLATFORM}" \
-            --cross-file="cross/${CROSSFILE}" \
-            --buildtype release
-          ninja -C "build_${PLATFORM}"
-          ls -la "build_${PLATFORM}/PluginSource/"
-          mkdir -p "vlc-${BUILD_FOLDER}"
-          # GitLab moves to VLCUnityPlugin.dll; meson may emit libVLCUnityPlugin.dll
-          if [[ -f "build_${PLATFORM}/PluginSource/libVLCUnityPlugin.dll" ]]; then
-            mv "build_${PLATFORM}/PluginSource/libVLCUnityPlugin.dll" "vlc-${BUILD_FOLDER}/VLCUnityPlugin.dll"
-          elif [[ -f "build_${PLATFORM}/PluginSource/VLCUnityPlugin.dll" ]]; then
-            mv "build_${PLATFORM}/PluginSource/VLCUnityPlugin.dll" "vlc-${BUILD_FOLDER}/VLCUnityPlugin.dll"
-          else
-            echo "VLCUnityPlugin.dll not found under build_${PLATFORM}/PluginSource"
-            find "build_${PLATFORM}" -name '*.dll' -print
-            exit 1
-          fi
+          docker run --rm \
+            -u 0 \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            -e BUILD_FOLDER \
+            -e PLATFORM \
+            -e CROSSFILE \
+            -e WINE_SDK_PATH \
+            "${VLC_WIN_LLVM_IMAGE}" \
+            bash -lc '
+              set -euo pipefail
+              WIN32_ROOT="$(find . -type d -path "*/_win32/lib/pkgconfig" | head -n1 | xargs -I{} dirname {} | xargs -I{} dirname {})"
+              if [[ -z "${WIN32_ROOT}" || ! -d "${WIN32_ROOT}/lib/pkgconfig" ]]; then
+                echo "Could not find _win32 LibVLC install tree"
+                find . -maxdepth 5 -type d -print | head -n 80
+                exit 1
+              fi
+              echo "Using LibVLC prefix: ${WIN32_ROOT}"
+              sed -i "s|^prefix=.*|prefix=$(realpath "${WIN32_ROOT}")|" "${WIN32_ROOT}/lib/pkgconfig/libvlc.pc"
+              cat "${WIN32_ROOT}/lib/pkgconfig/libvlc.pc"
+              # Intentionally omit ARGS_TRIAL / -Dwatermark=true (non-watermark build)
+              export PKG_CONFIG_PATH="$(realpath "${WIN32_ROOT}/lib/pkgconfig")"
+              meson setup "build_${PLATFORM}" \
+                --cross-file="cross/${CROSSFILE}" \
+                --buildtype release
+              ninja -C "build_${PLATFORM}"
+              ls -la "build_${PLATFORM}/PluginSource/"
+              mkdir -p "vlc-${BUILD_FOLDER}"
+              if [[ -f "build_${PLATFORM}/PluginSource/libVLCUnityPlugin.dll" ]]; then
+                mv "build_${PLATFORM}/PluginSource/libVLCUnityPlugin.dll" "vlc-${BUILD_FOLDER}/VLCUnityPlugin.dll"
+              elif [[ -f "build_${PLATFORM}/PluginSource/VLCUnityPlugin.dll" ]]; then
+                mv "build_${PLATFORM}/PluginSource/VLCUnityPlugin.dll" "vlc-${BUILD_FOLDER}/VLCUnityPlugin.dll"
+              else
+                echo "VLCUnityPlugin.dll not found under build_${PLATFORM}/PluginSource"
+                find "build_${PLATFORM}" -name "*.dll" -print
+                exit 1
+              fi
+            '
 
       - name: Upload VLCUnityPlugin.dll
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
