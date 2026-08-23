@@ -70,6 +70,21 @@ git -C vlc describe --tags --always || true
 Windows passes `-e VLC_GIT_REF` into `docker run` so the in-container clone
 sees the same pin.
 
+### GNU extras/tools mirror (`packages.mak`)
+
+Pinned LibVLC (and current master tip) set `GNU=https://ftpmirror.gnu.org/gnu`
+in `vlc/extras/tools/packages.mak`. That mirror has returned **HTTP 502** for
+`m4-1.4.21.tar.gz` (and likely gettext), which aborts the tools bootstrap within
+~1–2 minutes after a successful clone. The VideoLAN contrib mirror also lacks
+`m4-1.4.21` (404). Official `https://ftp.gnu.org/gnu` returns 200.
+
+After every VLC clone (and before patches / `build.sh`), all three workflows
+rewrite that line to `GNU=https://ftp.gnu.org/gnu`:
+
+- **macOS / iOS:** dedicated host step right after “Clone VLC”.
+- **Windows:** same `sed` inside the Docker `bash -c` script (clone is
+  in-container only; the host never has a pre-clone `vlc/` tree to patch).
+
 ### Bumping `VLC_GIT_REF`
 
 1. Edit `VLC_GIT_REF` in:

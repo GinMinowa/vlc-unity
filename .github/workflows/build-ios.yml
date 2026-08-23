@@ -92,6 +92,16 @@ jobs:
           git -C vlc rev-parse HEAD
           git -C vlc describe --tags --always || true
 
+      - name: Prefer ftp.gnu.org for VLC extras/tools (ftpmirror 502s)
+        run: |
+          set -euo pipefail
+          # Trial/master tip pins GNU=https://ftpmirror.gnu.org/gnu which 502s for m4-1.4.21.
+          # VideoLAN contrib mirror lacks m4-1.4.21 (404). Official ftp.gnu.org works.
+          sed -i.bak -e 's|^GNU=https://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|' \
+            -e 's|^GNU=http://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|' \
+            vlc/extras/tools/packages.mak
+          grep -n '^GNU=' vlc/extras/tools/packages.mak
+
       - name: Apply live555 patches from VideoLAN VLCKit (best-effort)
         working-directory: vlc
         run: |
