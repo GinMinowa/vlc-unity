@@ -28,7 +28,7 @@ All three workflows clone VideoLAN VLC at a **fixed commit SHA**, not floating
 
 | Env | Default | Meaning |
 |-----|---------|---------|
-| `VLC_GIT_REF` | `7e36acb27fa6fa253677799c606f04c28b27645c` | Full SHA for PluginSource-compatible master tip LibVLC (`7e36acb27f (2026-08-23 master)`, 2026-06-17 on VideoLAN) |
+| `VLC_GIT_REF` | `7e36acb27fa6fa253677799c606f04c28b27645c` | Full SHA of videolan/vlc master @ 2026-08-23 (has `media_player_cbs` + named `u` union; PluginSource-compatible). Not trial `e7a30c9d47`, not ancient tag `4.0.0-dev`. |
 
 Why this pin:
 
@@ -185,7 +185,7 @@ Trusted sources only:
 
 | Component | Source |
 |-----------|--------|
-| VLC tree | Primary: `https://code.videolan.org/videolan/vlc` @ SHA `VLC_GIT_REF` (`e7a30c9d47…` / PluginSource-compatible master tip) — fallback: `https://github.com/videolan/vlc` (same SHA). Not tag `4.0.0-dev`, not floating `master`. |
+| VLC tree | Primary: `https://code.videolan.org/videolan/vlc` @ SHA `VLC_GIT_REF` — fallback: `https://github.com/videolan/vlc` (same SHA). Not tag `4.0.0-dev`, not floating `master`. |
 | iOS live555 patches | VideoLAN VLCKit raw URLs (same as GitLab CI); best-effort soft apply on pinned SHA (WARN + continue if miss) |
 | Windows toolchain image | `registry.videolan.org/vlc-debian-llvm-msvcrt:20260331112916` (GitLab `VLC_WIN_LLVM_IMAGE`) |
 | macOS / iOS tools | Homebrew (`meson`, `ninja`, `pkg-config`, `nasm`, autotools) |
