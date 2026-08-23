@@ -111,10 +111,12 @@ jobs:
               git -C vlc describe --tags --always || true
               # Prefer ftp.gnu.org: ftpmirror.gnu.org 502s for m4-1.4.21; VideoLAN contrib lacks it.
               # Must run inside this container on the mounted /workspace/vlc tree (clone is in-container).
-              sed -i.bak -e 's|^GNU=https://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|' \
-                -e 's|^GNU=http://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|' \
+              # Use double quotes for sed exprs: this whole script is wrapped in bash -c '...' so
+              # single-quoted -e '...' would terminate the outer string early (exit 127).
+              sed -i.bak -e "s|^GNU=https://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|" \
+                -e "s|^GNU=http://ftpmirror.gnu.org/gnu|GNU=https://ftp.gnu.org/gnu|" \
                 vlc/extras/tools/packages.mak
-              grep -n '^GNU=' vlc/extras/tools/packages.mak
+              grep -n "^GNU=" vlc/extras/tools/packages.mak
               cd vlc
               extras/package/win32/build.sh ${LIBVLC_ARGS}
               cd "/workspace/vlc/${BUILD_FOLDER}"
