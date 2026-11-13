@@ -56,9 +56,10 @@ platforms without publishing a release.
   → `libvlcjni` → `vlc` structure; `vlc-android` and `libvlcjni` presently track
   their `master` branches. For perfectly reproducible releases, pin those two refs
   after the first proven green build.
-- LibVLCSharp is built from the VideoLAN repository with `UNITY=true` or
-  `UNITY_IOS=true`; `LIBVLCSHARP_GIT_REF` defaults to `master`. Record the commit
-  from `BUILD-INFO.txt` and pin the ref after a proven green build.
+- LibVLCSharp is pinned to `52cb7c5b871752c6beeb3f32984a294a72cc52c8`,
+  built with `UNITY=true` or `UNITY_IOS=true` and restricted to `netstandard2.0`.
+  Unrelated mobile .NET workloads are not required. The package records this ref
+  in `BUILD-INFO.txt`.
 - iOS patch files come from a pinned VLCKit commit, **not** floating `master`;
   an incompatible patch now fails the workflow instead of being silently skipped.
 - Android `classes.jar` is copied to `Assets/VLCUnity/Plugins/Android/classes.jar`,
