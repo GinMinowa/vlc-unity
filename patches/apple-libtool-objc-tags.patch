@@ -1,0 +1,26 @@
+--- a/extras/package/apple/build.sh
++++ b/extras/package/apple/build.sh
+@@ -833,6 +833,10 @@
+     OBJCXXFLAGS="${OBJCXXFLAGS}" \
+  || abort_err "Configuring VLC failed"
+ 
++# Libtool 2.5.4 has no OBJC tag. Use its existing CC/CXX configurations
++# while preserving the Objective-C compiler and all per-target flags.
++python3 "${GITHUB_WORKSPACE}/patches/fix-apple-libtool-tags.py" . || exit 1
++
+ $MAKE || abort_err "Building VLC failed"
+ 
+ $MAKE install || abort_err "Installing VLC failed"
+--- a/extras/package/macosx/build.sh
++++ b/extras/package/macosx/build.sh
+@@ -278,6 +278,10 @@
+     make clean
+ fi
+ 
++# Libtool 2.5.4 has no OBJC tag. Use its existing CC/CXX configurations
++# while preserving the Objective-C compiler and all per-target flags.
++python3 "${GITHUB_WORKSPACE}/patches/fix-apple-libtool-tags.py" . || exit 1
++
+ info "Running make -j$JOBS"
+ make -j$JOBS
+ 

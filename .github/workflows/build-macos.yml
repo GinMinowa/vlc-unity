@@ -30,6 +30,9 @@ on:
       - "meson.build"
       - "meson_options.txt"
       - "Info.plist.template.sh"
+      - "patches/apple-libtool-objc-tags.patch"
+      - "patches/fix-apple-libtool-tags.py"
+      - "patches/test-fix-apple-libtool-tags.py"
       - ".github/workflows/build-macos.yml"
   pull_request:
     paths:
@@ -39,6 +42,9 @@ on:
       - "meson.build"
       - "meson_options.txt"
       - "Info.plist.template.sh"
+      - "patches/apple-libtool-objc-tags.patch"
+      - "patches/fix-apple-libtool-tags.py"
+      - "patches/test-fix-apple-libtool-tags.py"
       - ".github/workflows/build-macos.yml"
 
 concurrency:
@@ -93,6 +99,14 @@ jobs:
           echo "Building LibVLC from ${REF}"
           git -C vlc rev-parse HEAD
           git -C vlc describe --tags --always || true
+
+      - name: Prepare explicit C/C++ libtool tags for Objective-C
+        run: |
+          set -euo pipefail
+          # Bundled Libtool 2.5.4 has no Objective-C tags. Patch generated
+          # commands after configure instead of relying on tag inference.
+          git -C vlc apply --check ../patches/apple-libtool-objc-tags.patch
+          git -C vlc apply ../patches/apple-libtool-objc-tags.patch
 
       - name: Prefer ftp.gnu.org for VLC extras/tools (ftpmirror 502s)
         run: |

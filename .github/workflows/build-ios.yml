@@ -29,7 +29,9 @@ on:
       - "scripts/**"
       - "copy_ios.sh"
       - "cross/iphoneos.txt"
-      - "patches/ios-libtool-objc-tags.patch"
+      - "patches/apple-libtool-objc-tags.patch"
+      - "patches/fix-apple-libtool-tags.py"
+      - "patches/test-fix-apple-libtool-tags.py"
       - "meson.build"
       - "meson_options.txt"
       - "Info.plist.template.sh"
@@ -41,7 +43,9 @@ on:
       - "scripts/**"
       - "copy_ios.sh"
       - "cross/iphoneos.txt"
-      - "patches/ios-libtool-objc-tags.patch"
+      - "patches/apple-libtool-objc-tags.patch"
+      - "patches/fix-apple-libtool-tags.py"
+      - "patches/test-fix-apple-libtool-tags.py"
       - "meson.build"
       - "meson_options.txt"
       - "Info.plist.template.sh"
@@ -143,14 +147,14 @@ jobs:
             fi
           done
 
-      - name: Enable explicit libtool Objective-C tags before bootstrap
+      - name: Prepare explicit C/C++ libtool tags for Objective-C
         run: |
           set -euo pipefail
-          # Autoconf may append -std=gnu23 to CC but not OBJC. Without
-          # dedicated tags libtool cannot infer the Objective-C compiler.
-          # Register both languages so Automake emits --tag=OBJC/OBJCXX.
-          git -C vlc apply --check ../patches/ios-libtool-objc-tags.patch
-          git -C vlc apply ../patches/ios-libtool-objc-tags.patch
+          # Bundled Libtool 2.5.4 has no Objective-C tags. After configure,
+          # keep the Objective-C compilers/flags but select existing CC/CXX
+          # tags explicitly for every generated compile and link command.
+          git -C vlc apply --check ../patches/apple-libtool-objc-tags.patch
+          git -C vlc apply ../patches/apple-libtool-objc-tags.patch
 
       - name: Build LibVLC for iPhoneOS aarch64
         run: |
