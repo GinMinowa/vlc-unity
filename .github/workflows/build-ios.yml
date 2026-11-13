@@ -243,7 +243,9 @@ jobs:
           set -euo pipefail
           chmod +x ./copy_ios.sh
           ./copy_ios.sh "${{ steps.libvlc.outputs.vlc_root }}" "${SHORT_ARCH}"
-          find Assets/VLCUnity/Plugins/iOS -type f | head -n 50
+          # Consume all find output: head can close the pipe early and make
+          # a successful copy fail under pipefail (SIGPIPE on large trees).
+          find Assets/VLCUnity/Plugins/iOS -type f | sed -n '1,50p'
 
       - name: Upload iOS plugin tree
         uses: actions/upload-artifact@v6
