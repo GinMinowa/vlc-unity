@@ -29,6 +29,7 @@ on:
       - "scripts/**"
       - "copy_ios.sh"
       - "cross/iphoneos.txt"
+      - "patches/ios-libtool-objc-tags.patch"
       - "meson.build"
       - "meson_options.txt"
       - "Info.plist.template.sh"
@@ -40,6 +41,7 @@ on:
       - "scripts/**"
       - "copy_ios.sh"
       - "cross/iphoneos.txt"
+      - "patches/ios-libtool-objc-tags.patch"
       - "meson.build"
       - "meson_options.txt"
       - "Info.plist.template.sh"
@@ -140,6 +142,15 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Enable explicit libtool Objective-C tags before bootstrap
+        run: |
+          set -euo pipefail
+          # Autoconf may append -std=gnu23 to CC but not OBJC. Without
+          # dedicated tags libtool cannot infer the Objective-C compiler.
+          # Register both languages so Automake emits --tag=OBJC/OBJCXX.
+          git -C vlc apply --check ../patches/ios-libtool-objc-tags.patch
+          git -C vlc apply ../patches/ios-libtool-objc-tags.patch
 
       - name: Build LibVLC for iPhoneOS aarch64
         run: |
