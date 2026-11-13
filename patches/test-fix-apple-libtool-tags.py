@@ -3,6 +3,9 @@
 from pathlib import Path
 import runpy
 import unittest
+import tempfile
+import subprocess
+import sys
 
 fix = runpy.run_path(str(Path(__file__).with_name('fix-apple-libtool-tags.py')))['fix']
 
@@ -23,6 +26,16 @@ class TagTests(unittest.TestCase):
         self.assertEqual(result.replace('$(LIBTOOL) --tag=CXX', '$(LIBTOOL)').replace(
             '$(LIBTOOL) --tag=CC', '$(LIBTOOL)', 3), source)
         self.assertEqual(fix(result), (result, 0))
+
+    def test_non_utf8_makefile_bytes_preserved(self):
+        original = b"# legacy comment: \xfc\xff\n$(LIBTOOL) --mode=compile $(OBJC)\n"
+        with tempfile.TemporaryDirectory() as directory:
+            makefile = Path(directory) / 'Makefile'
+            makefile.write_bytes(original)
+            subprocess.run([sys.executable, str(Path(__file__).with_name(
+                'fix-apple-libtool-tags.py')), directory], check=True, capture_output=True)
+            self.assertEqual(makefile.read_bytes(), original.replace(
+                b'$(LIBTOOL)', b'$(LIBTOOL) --tag=CC'))
 
     def test_other_commands_untouched(self):
         for source in ['hello\n', '', 'CC = clang\n', '$(LIBTOOL) --mode=compile $(CC)\n']:

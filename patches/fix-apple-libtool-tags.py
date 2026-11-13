@@ -34,9 +34,11 @@ def fix(text):
 if __name__ == '__main__':
     total = 0
     for path in pathlib.Path(sys.argv[1]).rglob('Makefile'):
-        text, count = fix(path.read_text())
+        # Contrib Makefiles may contain legacy-encoded comments. Preserve
+        # every byte while editing only the ASCII libtool command syntax.
+        text, count = fix(path.read_bytes().decode('latin-1'))
         if count:
-            path.write_text(text)
+            path.write_bytes(text.encode('latin-1'))
             print(f'{path}: tagged {count} Objective-C commands')
             total += count
     if not total:
