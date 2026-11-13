@@ -65,7 +65,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-ios:
     name: libvlc+plugin-ios-arm64
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout vlc-unity
         uses: actions/checkout@v5
