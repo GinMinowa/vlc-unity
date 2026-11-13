@@ -275,7 +275,9 @@ jobs:
           dotnet-version: '10.0.102'
 
       - name: Build LibVLCSharp for Unity
-        run: bash scripts/build-libvlcsharp.sh unity
+        # Native PLATFORM is a directory label, not an MSBuild Platform.
+        # Leaking it into dotnet changes bin/Release to bin/windows/Release.
+        run: env -u PLATFORM bash scripts/build-libvlcsharp.sh unity
 
       - name: Package complete Unity Windows ZIP
         run: bash scripts/package-platform.sh windows
