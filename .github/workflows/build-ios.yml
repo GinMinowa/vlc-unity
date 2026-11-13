@@ -3,7 +3,7 @@
 # (libvlc-ios-arm64 + unity-plugin-ios-aarch64).
 # NON-watermark only: never passes -Dwatermark=true / ARGS_TRIAL.
 #
-# Single job on macos-14: build LibVLC then meson/copy_ios immediately
+# Single job on macos-15: build LibVLC then meson/copy_ios immediately
 # (avoids download-artifact layout mismatches).
 
 name: Build iOS (aarch64)
@@ -56,8 +56,10 @@ env:
   ARCH: aarch64
   SDKNAME: iphoneos
   SHORT_ARCH: arm64
-  # VLCKit source commit, not a floating master patch URL.
-  VLCKIT_PATCH_REF: 3d0f0fa7031eab1a67c817c98a495e1c68fc998c
+  # VLCKit patches compatible with the pinned VLC live555 2022.07.14 tree.
+  # Newer VLCKit patches target a newer VLC and cannot be applied here.
+  # Keep both LGPLv2-compatible live555 patches, rather than skipping conflicts.
+  VLCKIT_PATCH_REF: b671b9f8b78c9a8c64d39a13396622c705c5dddc
 
 jobs:
   # ---------------------------------------------------------------------------
