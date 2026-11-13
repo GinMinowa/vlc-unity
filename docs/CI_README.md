@@ -23,7 +23,8 @@ After the workflow succeeds, open its **Summary > Artifacts** and download:
 | iOS ARM64 | `VLCUnity-iOS-ARM64` |
 | Android ARM64 / Quest | `VLCUnity-Android-arm64-v8a` |
 
-Artifacts contain a ZIP file whose root is `Assets/VLCUnity/Plugins/`. **Extract the ZIP
+Artifacts contain a ZIP file with `Assets/VLCUnity/`, including runtime C# code,
+editor import/build processors, native plugins, metadata, and the project license. **Extract the ZIP
 into the Unity project root**, *not* directly into `Assets/VLCUnity/Plugins/`.
 Windows, macOS and Android packages put the same managed assembly at
 `Assets/VLCUnity/Plugins/LibVLCSharp.dll` so their ZIPs can be combined without

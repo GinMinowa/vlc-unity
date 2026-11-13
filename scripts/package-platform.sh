@@ -19,6 +19,16 @@ stage="${root}/_stage/${artifact}"
 plugin_dest="${stage}/Assets/VLCUnity/Plugins/${dest}"
 rm -rf "$stage"
 mkdir -p "$plugin_dest" "${root}/dist"
+# Include the managed integration and importer/build postprocessors, not only
+# native binaries. Exclude the source Plugins tree so stale binaries for another
+# architecture cannot leak into a platform package. Keep stable Unity meta GUIDs.
+require_dir Assets/VLCUnity
+(
+  cd Assets
+  tar --exclude='VLCUnity/Plugins' -cf - VLCUnity VLCUnity.meta
+) | (cd "${stage}/Assets" && tar -xf -)
+require_file LICENSE
+cp LICENSE "${stage}/LICENSE"
 case "$platform" in
   windows)
     # Artifact upload strips the shared parent, so the downloaded runtime can be at ./*
@@ -44,7 +54,7 @@ case "$platform" in
     require_dir "$runtime/vlc"
     for dylib in libvlc.dylib libvlccore.dylib; do
       require_file "${runtime}/${dylib}"
-      cp -P "${runtime}/${dylib}" "$plugin_dest/"
+      cp -L "${runtime}/${dylib}" "$plugin_dest/"
     done
     require_file build_aarch64/PluginSource/libVLCUnityPlugin.dylib
     cp build_aarch64/PluginSource/libVLCUnityPlugin.dylib "$plugin_dest/"

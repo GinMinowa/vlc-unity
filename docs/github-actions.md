@@ -7,8 +7,8 @@ Actions runners for [GinMinowa/vlc-unity](https://github.com/GinMinowa/vlc-unity
 | Workflow | File | Runner(s) | GitLab jobs mirrored |
 |----------|------|-----------|----------------------|
 | Windows x86_64 | `.github/workflows/build-windows.yml` | `ubuntu-latest` + `docker run` VideoLAN LLVM/msvcrt image | `libvlc-win-x86_64`, `unity-plugin-windows` |
-| macOS | `.github/workflows/build-macos.yml` | `macos-14` (aarch64 only) | `libvlc-macos-aarch64`, `unity-plugin-macos-aarch64` |
-| iOS arm64 | `.github/workflows/build-ios.yml` | `macos-14` | `libvlc-ios-arm64`, `unity-plugin-ios-aarch64` |
+| macOS | `.github/workflows/build-macos.yml` | `macos-15` (aarch64 only) | `libvlc-macos-aarch64`, `unity-plugin-macos-aarch64` |
+| iOS arm64 | `.github/workflows/build-ios.yml` | `macos-15` | `libvlc-ios-arm64`, `unity-plugin-ios-aarch64` |
 
 ## Non-watermark (critical)
 
