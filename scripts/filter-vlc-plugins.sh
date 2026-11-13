@@ -243,7 +243,8 @@ elif [[ ${DELETED} -gt 80 ]]; then
 fi
 
 if [[ ${KEPT} -eq 0 ]]; then
-  echo "WARNING: no plugins kept — whitelist may be too strict or plugins dir layout unexpected" >&2
+  echo "ERROR: no plugins kept — whitelist may be too strict or plugins dir layout unexpected" >&2
+  exit 1
 fi
 
 exit 0

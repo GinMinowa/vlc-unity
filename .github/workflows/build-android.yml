@@ -1,0 +1,83 @@
+# VideoLAN official Android CI algorithm adapted to GitHub Actions.
+# Only Android ARM64 (Meta Quest / arm64-v8a); no watermark or trial time limit.
+name: Build Android (arm64-v8a)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    paths:
+      - 'PluginSource/**'
+      - 'cross/android-arm64-v8a-ndk25.txt'
+      - 'meson.build'
+      - 'meson_options.txt'
+      - 'scripts/**'
+      - '.github/workflows/build-android.yml'
+  pull_request:
+    paths:
+      - 'PluginSource/**'
+      - 'cross/android-arm64-v8a-ndk25.txt'
+      - 'meson.build'
+      - 'meson_options.txt'
+      - 'scripts/**'
+      - '.github/workflows/build-android.yml'
+
+concurrency:
+  group: build-android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VLC_ANDROID_IMAGE: registry.videolan.org/vlc-debian-android:20250626142950
+  VLC_GIT_REF: e7a30c9d47e8328de37cf1760a815e0af673fe12
+  VLC_ANDROID_REF: master
+  LIBVLCJNI_REF: master
+
+jobs:
+  android-arm64:
+    name: libvlc+plugin-android-arm64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout vlc-unity
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Pull official VideoLAN Android build image
+        run: docker pull "$VLC_ANDROID_IMAGE"
+
+      - name: Compile LibVLC and Unity rendering plugin without watermark
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user 0 \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            -e VLC_GIT_REF \
+            -e VLC_ANDROID_REF \
+            -e LIBVLCJNI_REF \
+            "${VLC_ANDROID_IMAGE}" \
+            bash scripts/build-android-arm64.sh
+
+      - name: Take ownership of Docker build outputs
+        run: sudo chown -R "$(id -u):$(id -g)" vlc-android build_android_arm64-v8a
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.102'
+
+      - name: Build LibVLCSharp for Unity
+        run: bash scripts/build-libvlcsharp.sh unity
+
+      - name: Package complete Unity Android ARM64 ZIP
+        run: bash scripts/package-platform.sh android
+
+      - name: Upload complete Unity Android ARM64 ZIP
+        uses: actions/upload-artifact@v6
+        with:
+          name: VLCUnity-Android-arm64-v8a
+          path: dist/VLCUnity-Android-arm64-v8a.zip
+          retention-days: 90
+          if-no-files-found: error

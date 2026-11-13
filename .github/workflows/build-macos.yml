@@ -10,23 +10,35 @@ name: Build macOS
 
 on:
   workflow_dispatch:
+    inputs:
+      filter_plugins:
+        description: 'Experimental codec whitelist (reduces feature coverage)'
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      filter_plugins:
+        required: false
+        type: boolean
+        default: false
   push:
     paths:
       - "PluginSource/**"
       - "build-libvlc.sh"
-      - "scripts/filter-vlc-plugins.sh"
-      - "cross/macos_x86_64.txt"
+      - "scripts/**"
       - "meson.build"
       - "meson_options.txt"
+      - "Info.plist.template.sh"
       - ".github/workflows/build-macos.yml"
   pull_request:
     paths:
       - "PluginSource/**"
       - "build-libvlc.sh"
-      - "scripts/filter-vlc-plugins.sh"
-      - "cross/macos_x86_64.txt"
+      - "scripts/**"
       - "meson.build"
       - "meson_options.txt"
+      - "Info.plist.template.sh"
       - ".github/workflows/build-macos.yml"
 
 concurrency:
@@ -49,7 +61,7 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Checkout vlc-unity
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -109,7 +121,8 @@ jobs:
           mkdir -p "../../macos-${ARCH}"
           mv macos-install "../../macos-${ARCH}/"
 
-      - name: Filter LibVLC plugins (codec whitelist)
+      - name: Filter LibVLC plugins (optional, codecs only)
+        if: ${{ inputs.filter_plugins }}
         run: |
           set -euo pipefail
           PLUGINS="macos-${ARCH}/macos-install/lib/vlc/plugins"
@@ -127,7 +140,7 @@ jobs:
           echo "NOTE: plugins.dat removed by filter; VLC regenerates cache at runtime on macOS."
 
       - name: Upload LibVLC macOS artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v6
         with:
           name: libvlc-macos-aarch64
           path: |
@@ -137,7 +150,7 @@ jobs:
             macos-aarch64/macos-install/lib/vlc/
             macos-aarch64/macos-install/lib/libvlc.dylib
             macos-aarch64/macos-install/lib/libvlccore.dylib
-          retention-days: 14
+          retention-days: 90
           if-no-files-found: error
 
       - name: Patch libvlc.pc + Meson/Ninja build (NO watermark)
@@ -150,15 +163,34 @@ jobs:
           cd ../..
           # Intentionally omit ARGS_TRIAL / -Dwatermark=true
           export PKG_CONFIG_PATH="$(pwd)/macos-${ARCH}/macos-install/lib/pkgconfig"
-          meson setup "build_${ARCH}" --buildtype release
+          meson setup "build_${ARCH}" -Dwatermark=false --buildtype release
           ninja -C "build_${ARCH}"
           install_name_tool -add_rpath "@loader_path/" "build_${ARCH}/PluginSource/libVLCUnityPlugin.dylib"
           ls -la "build_${ARCH}/PluginSource/"
 
       - name: Upload VLCUnityPlugin.dylib
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v6
         with:
           name: VLCUnityPlugin-macos-aarch64
           path: build_aarch64/PluginSource/libVLCUnityPlugin.dylib
-          retention-days: 14
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.102'
+
+      - name: Build LibVLCSharp for Unity
+        run: bash scripts/build-libvlcsharp.sh unity
+
+      - name: Package complete Unity macOS ARM64 ZIP
+        run: bash scripts/package-platform.sh macos
+
+      - name: Upload complete Unity macOS ARM64 ZIP
+        uses: actions/upload-artifact@v6
+        with:
+          name: VLCUnity-macOS-ARM64
+          path: dist/VLCUnity-macOS-ARM64.zip
+          retention-days: 90
           if-no-files-found: error

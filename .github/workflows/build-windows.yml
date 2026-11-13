@@ -11,23 +11,37 @@ name: Build Windows (x86_64)
 
 on:
   workflow_dispatch:
+    inputs:
+      filter_plugins:
+        description: 'Experimental codec whitelist (reduces feature coverage)'
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      filter_plugins:
+        required: false
+        type: boolean
+        default: false
   push:
     paths:
       - "PluginSource/**"
       - "build-libvlc.sh"
-      - "scripts/filter-vlc-plugins.sh"
+      - "scripts/**"
       - "cross/windows-x86_64.txt"
       - "meson.build"
       - "meson_options.txt"
+      - "Info.plist.template.sh"
       - ".github/workflows/build-windows.yml"
   pull_request:
     paths:
       - "PluginSource/**"
       - "build-libvlc.sh"
-      - "scripts/filter-vlc-plugins.sh"
+      - "scripts/**"
       - "cross/windows-x86_64.txt"
       - "meson.build"
       - "meson_options.txt"
+      - "Info.plist.template.sh"
       - ".github/workflows/build-windows.yml"
 
 concurrency:
@@ -59,7 +73,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout vlc-unity
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -126,7 +140,8 @@ jobs:
               mv vlc "vlc-${BUILD_FOLDER}"
             '
 
-      - name: Filter LibVLC plugins (codec whitelist)
+      - name: Filter LibVLC plugins (optional, codecs only)
+        if: ${{ inputs.filter_plugins }}
         run: |
           set -euo pipefail
           # Docker wrote the tree as root; reclaim ownership before deleting plugins.
@@ -158,13 +173,13 @@ jobs:
           fi
 
       - name: Upload LibVLC win64 artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v6
         with:
           name: libvlc-win-x86_64
           path: |
             vlc-${{ env.BUILD_FOLDER }}/${{ env.BUILD_FOLDER }}/vlc-4.0.0-dev
             vlc-${{ env.BUILD_FOLDER }}/${{ env.BUILD_FOLDER }}/_win32
-          retention-days: 14
+          retention-days: 90
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -179,12 +194,12 @@ jobs:
         shell: bash
     steps:
       - name: Checkout vlc-unity
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Download LibVLC artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@v7
         with:
           name: libvlc-win-x86_64
           path: .
@@ -231,7 +246,7 @@ jobs:
               export PKG_CONFIG_PATH="$(realpath "${WIN32_ROOT}/lib/pkgconfig")"
               meson setup "build_${PLATFORM}" \
                 --cross-file="cross/${CROSSFILE}" \
-                --buildtype release
+                -Dwatermark=false --buildtype release
               ninja -C "build_${PLATFORM}"
               ls -la "build_${PLATFORM}/PluginSource/"
               mkdir -p "vlc-${BUILD_FOLDER}"
@@ -247,9 +262,28 @@ jobs:
             '
 
       - name: Upload VLCUnityPlugin.dll
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@v6
         with:
           name: VLCUnityPlugin-windows-x86_64
           path: vlc-win64/VLCUnityPlugin.dll
-          retention-days: 14
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.102'
+
+      - name: Build LibVLCSharp for Unity
+        run: bash scripts/build-libvlcsharp.sh unity
+
+      - name: Package complete Unity Windows ZIP
+        run: bash scripts/package-platform.sh windows
+
+      - name: Upload complete Unity Windows ZIP
+        uses: actions/upload-artifact@v6
+        with:
+          name: VLCUnity-Windows-x86_64
+          path: dist/VLCUnity-Windows-x86_64.zip
+          retention-days: 90
           if-no-files-found: error

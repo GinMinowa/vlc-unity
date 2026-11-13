@@ -13,7 +13,7 @@ CONVERT_PLIST()
 {
     INPUT=$1
     OUTPUT=$2
-    if [ which plutil > /dev/null 2>&1 ]; then
+    if command -v plutil >/dev/null 2>&1; then
         plutil -convert binary1 -o "$OUTPUT" -- "$INPUT"
     else
         plistutil -o "$OUTPUT" -i "$INPUT"
@@ -29,8 +29,8 @@ cat <<EOF | plutil -convert binary1 -o - -- -
 	<string>${DEVELOPMENT_LANGUAGE}</string>
 	<key>CFBundleExecutable</key>
 	<string>${EXECUTABLE_NAME}</string>
-	<key>CFBundleName</key>
-  	<string>${DISPLAY_NAME}</string>
+	<key>CFBundleDisplayName</key>
+	<string>${DISPLAY_NAME:-${PRODUCT_NAME}}</string>
 	<key>CFBundleIdentifier</key>
 	<string>${PRODUCT_BUNDLE_IDENTIFIER}</string>
 	<key>CFBundleName</key>

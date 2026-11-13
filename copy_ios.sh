@@ -8,13 +8,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")"; pwd -P)"
 
 IOS_DIR="${SCRIPT_DIR}/Assets/VLCUnity/Plugins/iOS/"
 mkdir -p "${IOS_DIR}/${ARCH}/vlc/plugins/" \
-    ${IOS_DIR}/${ARCH}/vlccore.framework/ \
-    ${IOS_DIR}/${ARCH}/vlc.framework/
+    "${IOS_DIR}/${ARCH}/vlccore.framework/" \
+    "${IOS_DIR}/${ARCH}/vlc.framework/"
 
 cp "${VLC_INSTALL_DIR}/lib/libvlc.dylib" "${IOS_DIR}/${ARCH}/vlc.framework/vlc"
 cp "${VLC_INSTALL_DIR}/lib/libvlccore.dylib" "${IOS_DIR}/${ARCH}/vlccore.framework/vlccore"
 
-env -i \
+env -i PATH="${PATH}" \
       DEVELOPMENT_LANGUAGE=English \
       EXECUTABLE_NAME="vlc" \
       PRODUCT_BUNDLE_IDENTIFIER="org.videolan.vlc" \
@@ -26,7 +26,7 @@ install_name_tool -id "@rpath/vlc.framework/vlc" "${IOS_DIR}/${ARCH}/vlc.framewo
 install_name_tool -change "@rpath/libvlccore.dylib" "@rpath/vlccore.framework/vlccore" "${IOS_DIR}/${ARCH}/vlc.framework/vlc"
 install_name_tool -id "@rpath/vlccore.framework/vlccore" "${IOS_DIR}/${ARCH}/vlccore.framework/vlccore"
 
-env -i \
+env -i PATH="${PATH}" \
       DEVELOPMENT_LANGUAGE=English \
       EXECUTABLE_NAME="vlccore" \
       PRODUCT_BUNDLE_IDENTIFIER="org.videolan.vlccore" \
@@ -39,7 +39,7 @@ cp "${SCRIPT_DIR}/build_${ARCH}/PluginSource/libVLCUnityPlugin.dylib" "${SCRIPT_
 install_name_tool -id "@rpath/VLCUnityPlugin.framework/VLCUnityPlugin" "${SCRIPT_DIR}/Assets/VLCUnity/Plugins/iOS/${ARCH}/VLCUnityPlugin.framework/VLCUnityPlugin"
 install_name_tool -change "@rpath/libvlc.dylib" "@rpath/vlc.framework/vlc" "${SCRIPT_DIR}/Assets/VLCUnity/Plugins/iOS/${ARCH}/VLCUnityPlugin.framework/VLCUnityPlugin"
 
-env -i \
+env -i PATH="${PATH}" \
       DEVELOPMENT_LANGUAGE=English \
       EXECUTABLE_NAME="VLCUnityPlugin" \
       PRODUCT_BUNDLE_IDENTIFIER="org.videolan.VLCUnityPlugin" \
@@ -47,21 +47,19 @@ env -i \
       CURRENT_PROJECT_VERSION="4.0" \
       "${SCRIPT_DIR}/Info.plist.template.sh" > "${IOS_DIR}/${ARCH}/VLCUnityPlugin.framework/Info.plist"
 
-PLUGINS=$(find "${VLC_INSTALL_DIR}/lib/vlc/plugins/" -name '*.dylib')
-
-for plugin in ${PLUGINS}; do
-  file="$(basename ${plugin})"
+while IFS= read -r -d '' plugin; do
+  file="$(basename "${plugin}")"
   file="${file#lib}"
   framework="${IOS_DIR}/${ARCH}/vlc/plugins/${file%.*}.framework/"
   mkdir -p "${framework}"
   cp "${plugin}" "${framework}/${file%.*}"
   install_name_tool -id "@rpath/${file%.*}.framework/${file%.*}" "${framework}/${file%.*}"
   install_name_tool -change "@rpath/libvlccore.dylib" "@rpath/vlccore.framework/vlccore" "${framework}/${file%.*}"
-  env -i \
+  env -i PATH="${PATH}" \
       DEVELOPMENT_LANGUAGE=English \
       EXECUTABLE_NAME="${file%.*}" \
       PRODUCT_BUNDLE_IDENTIFIER="org.videolan.plugin.$(echo "${file%.*}" | tr _ -)" \
       PRODUCT_NAME="${file%.*}" \
       CURRENT_PROJECT_VERSION="4.0" \
       "${SCRIPT_DIR}/Info.plist.template.sh" > "${framework}/Info.plist"
-done
+done < <(find "${VLC_INSTALL_DIR}/lib/vlc/plugins/" -type f -name '*.dylib' -print0)
