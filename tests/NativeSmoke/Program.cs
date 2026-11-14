@@ -9,7 +9,8 @@ using LibVLCSharp;
 // Windows native ABI smoke test. Uses the actual Unity binding for instance,
 // media creation and async parsing. A raw native player avoids calling Unity's
 // graphics bridge without an initialized IUnityGraphics host.
-var dir = Path.GetFullPath(args[0]);
+var root = Path.GetFullPath(args[0]);
+var dir = Path.Combine(root, "Plugins");
 Environment.SetEnvironmentVariable("PATH", dir + ";" + Environment.GetEnvironmentVariable("PATH"));
 Environment.SetEnvironmentVariable("VLC_PLUGIN_PATH", Path.Combine(dir, "plugins"));
 NativeLibrary.Load(Path.Combine(dir, "libvlccore.dll"));
@@ -19,6 +20,8 @@ IntPtr Resolve(string name, Assembly asm, DllImportSearchPath? path) =>
     name.Contains("VLCUnityPlugin") ? bridge : name.Contains("libvlc") ? vlcHandle : IntPtr.Zero;
 NativeLibrary.SetDllImportResolver(typeof(LibVLC).Assembly, Resolve);
 NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), Resolve);
+Core.Initialize(root); // exercise the binding's Unity initialization in a player-style layout
+Native.SetPluginPath(Path.Combine(dir, "plugins"));
 foreach (var entry in new[] { "libvlc_unity_media_player_new", "libvlc_unity_media_player_release", "libvlc_unity_get_texture" })
     if (!NativeLibrary.TryGetExport(bridge, entry, out _)) throw new Exception("Missing bridge export " + entry);
 // libvlc_add_intf is a removed VLC UI API, not used by the Unity integration.
@@ -71,6 +74,7 @@ Console.WriteLine("NOT TESTED: Unity graphics initialization, textures, audio-de
 
 static class Native
 {
+    [DllImport("VLCUnityPlugin", CallingConvention=CallingConvention.Cdecl)] public static extern void SetPluginPath(string path);
     [DllImport("libvlc", CallingConvention=CallingConvention.Cdecl)] public static extern IntPtr libvlc_media_player_new(IntPtr vlc);
     [DllImport("libvlc", CallingConvention=CallingConvention.Cdecl)] public static extern void libvlc_media_player_set_media(IntPtr player, IntPtr media);
     [DllImport("libvlc", CallingConvention=CallingConvention.Cdecl)] public static extern int libvlc_media_player_play(IntPtr player);

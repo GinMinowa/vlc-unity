@@ -61,5 +61,8 @@ jobs:
           Expand-Archive native-package/VLCUnity-Windows-x86_64.zip native-package/unpacked
           $native = (Resolve-Path native-package/unpacked/Assets/VLCUnity/Plugins/Windows/x86_64).Path
           $sharp = (Resolve-Path managed/LibVLCSharp.dll).Path
-          dotnet run --project tests/NativeSmoke/NativeSmoke.csproj -c Release "/p:SharpAssembly=$sharp" -- "$native"
+          New-Item -ItemType Directory -Force smoke-runtime/Plugins | Out-Null
+          Copy-Item "$native/*" smoke-runtime/Plugins -Recurse
+          $runtime = (Resolve-Path smoke-runtime).Path
+          dotnet run --project tests/NativeSmoke/NativeSmoke.csproj -c Release "/p:SharpAssembly=$sharp" -- "$runtime"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
