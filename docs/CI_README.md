@@ -87,3 +87,11 @@ its resulting DLL and tests the June native state values/parser contract. These
 compile-only tests use NuGet Unity reference assemblies (2021.3 + legacy UGUI),
 not a Unity 6 Editor; editor import, IL2CPP and real-device playback still need
 separate tests. The native jobs also rebuild packages on changes to Unity sources.
+
+The Windows native smoke job loads the original published native binaries with
+our new managed binding, checks its three bridge exports in `VLCUnityPlugin.dll`,
+and runs managed media parsing plus raw-native headless WAV playback/state/time
+checks. Raw playback deliberately bypasses Unity graphics initialization: it is
+not a rendered-video or Unity-device test. `LibVLC.AddInterface` (VLC's own UI)
+is unavailable in this pinned native build and must not be called; none of the
+Unity integration uses it. This is not a promise of coverage of every public API.

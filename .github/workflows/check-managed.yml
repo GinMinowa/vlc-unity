@@ -32,3 +32,34 @@ jobs:
             _libvlcsharp-${{ matrix.flavor }}/LibVLCSharp.dll
             _libvlcsharp-${{ matrix.flavor }}/LIBVLCSHARP-COMMIT.txt
           if-no-files-found: error
+  windows-native-smoke:
+    needs: managed
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.102'
+      - uses: actions/download-artifact@v5
+        with:
+          name: Verified-LibVLCSharp-unity
+          path: managed
+      # Immutable successful native package from the original e7a30c9 build.
+      # We replace only its binding; do not rebuild an unrelated engine here.
+      - uses: actions/download-artifact@v5
+        with:
+          name: VLCUnity-Windows-x86_64
+          run-id: 43409200993
+          github-token: ${{ github.token }}
+          path: native-package
+      - name: Run managed parsing and native audio playback smoke test
+        shell: pwsh
+        run: |
+          Expand-Archive native-package/VLCUnity-Windows-x86_64.zip native-package/unpacked
+          $native = (Resolve-Path native-package/unpacked/Assets/VLCUnity/Plugins/Windows/x86_64).Path
+          $sharp = (Resolve-Path managed/LibVLCSharp.dll).Path
+          dotnet run --project tests/NativeSmoke/NativeSmoke.csproj -c Release "/p:SharpAssembly=$sharp" -- "$native"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
