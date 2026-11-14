@@ -1,0 +1,34 @@
+name: Check managed binding ABI
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Assets/VLCUnity/**'
+      - 'scripts/build-libvlcsharp.sh'
+      - 'tests/**'
+      - '.github/workflows/check-managed.yml'
+  pull_request:
+    paths:
+      - 'Assets/VLCUnity/**'
+      - 'scripts/build-libvlcsharp.sh'
+      - 'tests/**'
+      - '.github/workflows/check-managed.yml'
+jobs:
+  managed:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        flavor: [unity, ios]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.102'
+      - run: bash scripts/build-libvlcsharp.sh ${{ matrix.flavor }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Verified-LibVLCSharp-${{ matrix.flavor }}
+          path: |
+            _libvlcsharp-${{ matrix.flavor }}/LibVLCSharp.dll
+            _libvlcsharp-${{ matrix.flavor }}/LIBVLCSHARP-COMMIT.txt
+          if-no-files-found: error

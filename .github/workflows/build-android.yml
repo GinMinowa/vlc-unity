@@ -12,6 +12,8 @@ on:
       - 'meson.build'
       - 'meson_options.txt'
       - 'scripts/**'
+      - 'Assets/VLCUnity/**'
+      - 'tests/**'
       - '.github/workflows/build-android.yml'
   pull_request:
     paths:
@@ -20,6 +22,8 @@ on:
       - 'meson.build'
       - 'meson_options.txt'
       - 'scripts/**'
+      - 'Assets/VLCUnity/**'
+      - 'tests/**'
       - '.github/workflows/build-android.yml'
 
 concurrency:

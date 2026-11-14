@@ -56,7 +56,7 @@ platforms without publishing a release.
   → `libvlcjni` → `vlc` structure; `vlc-android` and `libvlcjni` presently track
   their `master` branches. For perfectly reproducible releases, pin those two refs
   after the first proven green build.
-- LibVLCSharp is pinned to `52cb7c5b871752c6beeb3f32984a294a72cc52c8`,
+- LibVLCSharp is pinned to `039cd5aa7be77a003f917d8dc4ce1c43db2db6ae`,
   built with `UNITY=true` or `UNITY_IOS=true` and restricted to `netstandard2.0`.
   Unrelated mobile .NET workloads are not required. The package records this ref
   in `BUILD-INFO.txt`.
@@ -72,3 +72,18 @@ platforms without publishing a release.
 that the native VideoLAN toolchains succeed. Always check actual Actions logs and
 run playback smoke tests (H.264, H.265, audio, subtitles, network streams) before a
 production release.
+
+### Managed/native ABI regression (2026-11-14)
+
+The November LibVLCSharp pin (`52cb7c5`) was incompatible with the June native
+engine (`e7a30c9`): it removed `VLCState.Buffering` and renumbered later states,
+and migrated parsing to a newer native API. Removing the Unity C# reference to
+`Buffering` would only hide the first error, not fix the ABI mismatch.
+The managed pin is now `039cd5aa7be77a003f917d8dc4ce1c43db2db6ae` (June 17).
+Do not upgrade one side independently or substitute the NuGet 3.x binding.
+
+Every managed build now compiles the actual runtime and demo C# sources against
+its resulting DLL and tests the June native state values/parser contract. These
+compile-only tests use NuGet Unity reference assemblies (2021.3 + legacy UGUI),
+not a Unity 6 Editor; editor import, IL2CPP and real-device playback still need
+separate tests. The native jobs also rebuild packages on changes to Unity sources.

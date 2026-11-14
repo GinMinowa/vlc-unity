@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <LangVersion>9.0</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefineConstants>UNITY_STANDALONE_WIN;ENABLE_LEGACY_INPUT_MANAGER</DefineConstants>
+    <NoWarn>$(NoWarn);CS0649;NU1701</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Compile-only reference assemblies, NOT shipped with the Unity package.
+         This catches binding/API drift without a licensed Unity Editor.
+         It does not replace Unity 6 import, IL2CPP, or device playback tests. -->
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" />
+    <PackageReference Include="Unity3D.UnityEngine.UI" Version="2018.3.5.1" />
+    <Reference Include="LibVLCSharp"><HintPath>$(SharpAssembly)</HintPath></Reference>
+    <Compile Include="../../Assets/VLCUnity/Internal/*.cs" />
+    <Compile Include="../../Assets/VLCUnity/Demos/Scripts/*.cs" />
+  </ItemGroup>
+</Project>
