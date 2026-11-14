@@ -1,0 +1,43 @@
+--- a/modules/codec/videotoolbox/decoder.c
++++ b/modules/codec/videotoolbox/decoder.c
+@@ -1269,6 +1269,32 @@
+     return decoderConfiguration;
+ }
+ 
++/* Diagnostic only: never confuse capability with the active session, and
++ * never fail playback because a read-only property is unavailable. */
++static void LogVP9HardwareSession(decoder_t *p_dec)
++{
++    decoder_sys_t *p_sys = p_dec->p_sys;
++    if (p_dec->fmt_in->i_codec != VLC_CODEC_VP9)
++        return;
++
++    if (__builtin_available(macOS 10.9, iOS 8.0, tvOS 10.2, *))
++    {
++        CFTypeRef value = NULL;
++        OSStatus status = VTSessionCopyProperty(p_sys->session,
++            kVTDecompressionPropertyKey_UsingHardwareAcceleratedVideoDecoder,
++            kCFAllocatorDefault, &value);
++        const char *hardware = "unknown";
++        if (status == noErr && value != NULL &&
++            CFGetTypeID(value) == CFBooleanGetTypeID())
++            hardware = CFBooleanGetValue((CFBooleanRef)value) ? "yes" : "no";
++        msg_Info(p_dec, "VP9 VT session hardware=%s status=%d", hardware, (int)status);
++        if (value != NULL)
++            CFRelease(value);
++    }
++    else
++        msg_Info(p_dec, "VP9 VT session hardware=unknown (property API unavailable)");
++}
++
+ static int StartVideoToolbox(decoder_t *p_dec)
+ {
+     decoder_sys_t *p_sys = p_dec->p_sys;
+@@ -1362,6 +1388,7 @@
+     if (HandleVTStatus(p_dec, status, NULL) != VLC_SUCCESS)
+         return VLC_EGENERIC;
+ 
++    LogVP9HardwareSession(p_dec);
+     return VLC_SUCCESS;
+ 
+ error:

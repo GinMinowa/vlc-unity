@@ -41,6 +41,7 @@ on:
       - "copy_ios.sh"
       - "cross/iphoneos.txt"
       - "patches/ios-vp9-videotoolbox.patch"
+      - "patches/ios-vp9-session-log.patch"
       - "patches/apple-libtool-objc-tags.patch"
       - "patches/fix-apple-libtool-tags.py"
       - "patches/test-fix-apple-libtool-tags.py"
@@ -58,6 +59,7 @@ on:
       - "copy_ios.sh"
       - "cross/iphoneos.txt"
       - "patches/ios-vp9-videotoolbox.patch"
+      - "patches/ios-vp9-session-log.patch"
       - "patches/apple-libtool-objc-tags.patch"
       - "patches/fix-apple-libtool-tags.py"
       - "patches/test-fix-apple-libtool-tags.py"
@@ -193,6 +195,9 @@ jobs:
           set -euo pipefail
           git -C vlc apply --check ../patches/ios-vp9-videotoolbox.patch
           git -C vlc apply ../patches/ios-vp9-videotoolbox.patch
+          git -C vlc apply --check ../patches/ios-vp9-session-log.patch
+          git -C vlc apply ../patches/ios-vp9-session-log.patch
+          python3 tests/VP9/session-log.py vlc/modules/codec/videotoolbox/decoder.c
           cc -std=gnu11 -Ivlc/include -Ivlc tests/VP9/parser.c \
             vlc/modules/packetizer/vp9_frame.c -o /tmp/vp9-parser-test
           /tmp/vp9-parser-test
