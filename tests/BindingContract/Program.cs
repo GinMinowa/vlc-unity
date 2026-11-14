@@ -17,6 +17,6 @@ var imports = typeof(Media).Assembly.GetTypes().SelectMany(t =>
     .Where(n => n != null).ToHashSet();
 if (!imports.Contains("libvlc_media_parse_request"))
     throw new Exception("Expected the parser API of the pinned June 2026 native engine");
-if (imports.Contains("libvlc_media_parser_new"))
+if (imports.Contains("libvlc_parser_new"))
     throw new Exception("New parser API cannot be used with the pinned June 2026 engine");
 Console.WriteLine("PASS: VLCState numeric ABI and pinned native parser API contract");
